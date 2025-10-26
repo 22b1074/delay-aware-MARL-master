@@ -121,10 +121,10 @@ class DummyVecEnv(VecEnv):
         self.actions = None
         return np.array(obs), np.array(rews), np.array(dones), infos
 
-    def reset(self, **kwargs):
-        # keep per-env and per-agent observations as lists
-        results = [env.reset(**kwargs) for env in self.envs]  # each is list of obs per agent
-        return results
+     def reset(self):        
+        results = [env.reset() for env in self.envs]
+        return np.array(results)
+
 
     def close(self):
         return
