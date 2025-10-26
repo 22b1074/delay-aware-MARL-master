@@ -121,9 +121,12 @@ class DummyVecEnv(VecEnv):
         self.actions = None
         return np.array(obs), np.array(rews), np.array(dones), infos
 
-    def reset(self):        
+    def reset(self):
         results = [env.reset() for env in self.envs]
-        return np.array(results)       
+        # Flatten into 1D list of observations
+        flattened = [obs for env_obs in results for obs in env_obs]
+        # Convert to object array (allows different shapes)
+        return np.array(flattened, dtype=object)     
 
     def close(self):
         return
