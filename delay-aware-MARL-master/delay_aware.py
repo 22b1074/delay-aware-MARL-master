@@ -75,13 +75,13 @@ def run(config):
                                   tau=config.tau,
                                   lr=config.lr,
                                   hidden_dim=config.hidden_dim,
-                                  delay_step = 2)
+                                  delay_step = 3)
     print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
     for i, agent in enumerate(maddpg.agents):
         print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
         print(f"[DEBUG] Agent {i} policy first layer input features: {agent.policy.in_fn.num_features}")
         print(f"[DEBUG] Agent {i} policy BatchNorm running_mean size: {agent.policy.in_fn.running_mean.shape}")
-    delay_step = 2
+    delay_step = 3
     #base_env used
     replay_buffer = ReplayBuffer(
         config.buffer_length, 
