@@ -59,35 +59,35 @@ def run(config):
         torch.set_num_threads(config.n_training_threads)
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
-    #print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
+    print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     # Access the underlying environment
-    #base_env = env.envs[0]  # Get the first environment from the wrapper
-    #print(f"[DEBUG] Number of agents: {base_env.n}")
-    #print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
-    #print(f"[DEBUG] Action spaces: {base_env.action_space}")
-    #for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
-     #   print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
-      #  for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
-       #     print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
-    #print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
+    base_env = env.envs[0]  # Get the first environment from the wrapper
+    print(f"[DEBUG] Number of agents: {base_env.n}")
+    print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
+    print(f"[DEBUG] Action spaces: {base_env.action_space}")
+    for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
+        print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
+        for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
+            print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
+    print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
     maddpg = MADDPG.init_from_env_with_delay(env, agent_alg=config.agent_alg,
                                   adversary_alg=config.adversary_alg,
                                   tau=config.tau,
                                   lr=config.lr,
                                   hidden_dim=config.hidden_dim,
                                   delay_step = 2)
-    #print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
-    #for i, agent in enumerate(maddpg.agents):
-     #   print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
+    print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
+    for i, agent in enumerate(maddpg.agents):
+        print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
     delay_step = 2
     #base_env used
     replay_buffer = ReplayBuffer(
         config.buffer_length, 
         maddpg.nagents,
-        [env.observation_space[i].shape[0] + env.action_space[i].shape[0] * delay_step 
+        [base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step 
          for i in range(maddpg.nagents)],
         [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
-         for acsp in env.action_space]
+         for acsp in base_env.action_space]
     )
     #print(f"\n[DEBUG] Replay buffer obs dims: {[base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step for i in range(maddpg.nagents)]}")
     t = 0
@@ -95,20 +95,20 @@ def run(config):
         print("Episodes %i-%i of %i" % (ep_i + 1,
                                         ep_i + 1 + config.n_rollout_threads,
                                         config.n_episodes))
-        #base_env = env.envs[0]
-        #print("[DEBUG] Agents in environment:", base_env.agents)
-        #print("[DEBUG] Observation spaces per agent:")
-        #for agent in base_env.agents:
-         #   obs_space = base_env.observation_space(agent)
-          #  print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
+        base_env = env.envs[0]
+        print("[DEBUG] Agents in environment:", base_env.agents)
+        print("[DEBUG] Observation spaces per agent:")
+        for agent in base_env.agents:
+            obs_space = base_env.observation_space(agent)
+            print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
 
         obs = env.reset()
-        #print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
-        #print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
-        #for i, o in enumerate(obs[0]):
-         #   print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
+        print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
+        print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
+        for i, o in enumerate(obs[0]):
+            print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
         
-        # obs.shape = (n_rollout_threads, nagent)(nobs), nobs differs per agent so not tensor
+         obs.shape = (n_rollout_threads, nagent)(nobs), nobs differs per agent so not tensor
         if USE_CUDA:
             maddpg.prep_rollouts(device='gpu')
         else:
@@ -118,30 +118,29 @@ def run(config):
         maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
         maddpg.reset_noise()
 
-        #zero_agent_actions = [np.array([0.0, 0.0]) for _ in range(maddpg.nagents)]
         # base_env used
-        zero_agent_actions = [np.zeros(env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
-        #print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
+        zero_agent_actions = [np.zeros(base_env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
+        print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
         
         last_agent_actions = [zero_agent_actions for _ in range(delay_step)]
-        #print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
+        print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
         
         for a_i, agent_obs in enumerate(obs[0]):
-            #print(f"[DEBUG] Agent {a_i} original obs shape: {agent_obs.shape}")
+            print(f"[DEBUG] Agent {a_i} original obs shape: {agent_obs.shape}")
             for _ in range(len(last_agent_actions)):
-                #print(f"[DEBUG]   Appending last_agent_actions[{_}][{a_i}] shape: {last_agent_actions[_][a_i].shape}")
+                print(f"[DEBUG]   Appending last_agent_actions[{_}][{a_i}] shape: {last_agent_actions[_][a_i].shape}")
                 obs[0][a_i] = np.append(agent_obs, last_agent_actions[_][a_i])
-                #print(f"[DEBUG]   After append, obs[0][{a_i}] shape: {obs[0][a_i].shape}")
-        #print("\n[DEBUG] Final obs shapes after appending:")
-        #for i, o in enumerate(obs[0]):
-            #print(f"[DEBUG] obs[0][{i}] final shape: {o.shape}")
+                print(f"[DEBUG]   After append, obs[0][{a_i}] shape: {obs[0][a_i].shape}")
+        print("\n[DEBUG] Final obs shapes after appending:")
+        for i, o in enumerate(obs[0]):
+            print(f"[DEBUG] obs[0][{i}] final shape: {o.shape}")
         for et_i in range(config.episode_length):
             torch_obs = [Variable(torch.Tensor(np.vstack(obs[:, i])),
                                   requires_grad=False)
                          for i in range(maddpg.nagents)]
-            #print(f"[DEBUG] Calling maddpg.step...")
+            print(f"[DEBUG] Calling maddpg.step...")
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
-            #print(f"[DEBUG] maddpg.step completed")
+            print(f"[DEBUG] maddpg.step completed")
             agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
 
             if delay_step == 0:
@@ -161,7 +160,7 @@ def run(config):
                         next_obs[0][a_i] = np.append(agent_obs, 3*last_agent_actions[_][a_i])
             agent_actions[0] = agent_actions[0]*3
             agent_actions[1] = agent_actions[1]*3
-            #agent_actions.append(agent_actions[1]*4)
+            agent_actions.append(agent_actions[1]*4)
             replay_buffer.push(obs, agent_actions, rewards, next_obs, dones)
     
 
