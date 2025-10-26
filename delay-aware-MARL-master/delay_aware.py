@@ -80,12 +80,15 @@ def run(config):
     for i, agent in enumerate(maddpg.agents):
         print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
     delay_step = 1
-    replay_buffer = ReplayBuffer(config.buffer_length, maddpg.nagents,
-                                 [obsp.shape[0] + delay_step*2 for obsp in env.observation_space],
-                                 [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
-                                  for acsp in env.action_space])
-    print(f"\n[DEBUG] Replay buffer obs dims: {[obsp.shape[0] + delay_step*2 for obsp in env.observation_space]}")
-    
+    replay_buffer = ReplayBuffer(
+        config.buffer_length, 
+        maddpg.nagents,
+        [base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step 
+         for i in range(maddpg.nagents)],
+        [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
+         for acsp in base_env.action_space]
+    )
+    print(f"\n[DEBUG] Replay buffer obs dims: {[base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step for i in range(maddpg.nagents)]}")
     t = 0
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
         print("Episodes %i-%i of %i" % (ep_i + 1,
@@ -105,7 +108,10 @@ def run(config):
             print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
         
         # obs.shape = (n_rollout_threads, nagent)(nobs), nobs differs per agent so not tensor
-        maddpg.prep_rollouts(device='cpu')
+        if USE_CUDA:
+            maddpg.prep_rollouts(device='gpu')
+        else:
+            maddpg.prep_rollouts(device='cpu')
 
         explr_pct_remaining = max(0, config.n_exploration_eps - ep_i) / config.n_exploration_eps
         maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
@@ -172,7 +178,10 @@ def run(config):
                                                       to_gpu=USE_CUDA)
                         maddpg.update(sample, a_i, logger=logger)
                     maddpg.update_adversaries()
-                maddpg.prep_rollouts(device='cpu')
+                if USE_CUDA:
+                    maddpg.prep_rollouts(device='gpu')
+                else:
+                    maddpg.prep_rollouts(device='cpu')
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
         for a_i, a_ep_rew in enumerate(ep_rews):
