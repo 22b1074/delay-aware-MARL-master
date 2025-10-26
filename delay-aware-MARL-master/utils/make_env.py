@@ -12,7 +12,7 @@ class MultiAgentEnvAdapter:
         obs_dict, _ = self.env.reset()
         self.agents = list(obs_dict.keys())
         self.n = len(self.agents)
-
+        print(f"[DEBUG] Agents: {self.agents}, Total: {self.n}")
     def reset(self, **kwargs):
         obs_dict, _ = self.env.reset(**kwargs)
         obs_n = [obs_dict[a] for a in self.agents]
@@ -39,11 +39,16 @@ class MultiAgentEnvAdapter:
 
     @property
     def action_space(self):
-        return [self.env.action_space(a) for a in self.agents]
-
+        spaces = [self.env.action_space(a) for a in self.agents]
+        for i, sp in enumerate(spaces):
+            print(f"[DEBUG] Agent {self.agents[i]} Action space: {sp}, Type: {type(sp)}")
+        return spaces
     @property
     def observation_space(self):
-        return [self.env.observation_space(a) for a in self.agents]
+        spaces = [self.env.observation_space(a) for a in self.agents]
+        for i, sp in enumerate(spaces):
+            print(f"[DEBUG] Agent {self.agents[i]} Observation space: {sp}, Type: {type(sp)}")
+        return spaces
 
 
 def make_env(scenario_name, discrete_action=False):
