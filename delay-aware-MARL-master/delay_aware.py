@@ -111,7 +111,8 @@ def run(config):
         maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
         maddpg.reset_noise()
 
-        zero_agent_actions = [np.array([0.0, 0.0]) for _ in range(maddpg.nagents)]
+        #zero_agent_actions = [np.array([0.0, 0.0]) for _ in range(maddpg.nagents)]
+        zero_agent_actions = [np.zeros(base_env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
         print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
         
         last_agent_actions = [zero_agent_actions for _ in range(delay_step)]
