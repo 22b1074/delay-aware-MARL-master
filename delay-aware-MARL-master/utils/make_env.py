@@ -1,10 +1,12 @@
 class MultiAgentEnvAdapter:
     def __init__(self, pettingzoo_env):
         self.env = pettingzoo_env
-        self.agents = self.env.agents
+        obs_dict = self.env.reset()
+        self.agents = list(obs_dict.keys())
+
 
     def reset(self):
-        obs_dict, infos = self.env.reset()
+        obs_dict = self.env.reset()
         obs_n = [obs_dict[a] for a in self.agents]
         return obs_n
 
