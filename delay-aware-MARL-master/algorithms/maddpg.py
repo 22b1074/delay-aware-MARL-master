@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from gym.spaces import Box, Discrete
+from gymnasium.spaces import Box, Discrete
 from utils.networks import MLPNetwork
 from utils.misc import soft_update, average_gradients, onehot_from_logits, gumbel_softmax
 from utils.agents import DDPGAgent
