@@ -61,7 +61,7 @@ def run(config):
                             config.discrete_action)
     #print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     # Access the underlying environment
-    base_env = env.envs[0]  # Get the first environment from the wrapper
+    #base_env = env.envs[0]  # Get the first environment from the wrapper
     #print(f"[DEBUG] Number of agents: {base_env.n}")
     #print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
     #print(f"[DEBUG] Action spaces: {base_env.action_space}")
@@ -80,13 +80,14 @@ def run(config):
     #for i, agent in enumerate(maddpg.agents):
      #   print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
     delay_step = 1
+    #base_env used
     replay_buffer = ReplayBuffer(
         config.buffer_length, 
         maddpg.nagents,
-        [base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step 
+        [env.observation_space[i].shape[0] + env.action_space[i].shape[0] * delay_step 
          for i in range(maddpg.nagents)],
         [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
-         for acsp in base_env.action_space]
+         for acsp in env.action_space]
     )
     #print(f"\n[DEBUG] Replay buffer obs dims: {[base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step for i in range(maddpg.nagents)]}")
     t = 0
@@ -118,7 +119,8 @@ def run(config):
         maddpg.reset_noise()
 
         #zero_agent_actions = [np.array([0.0, 0.0]) for _ in range(maddpg.nagents)]
-        zero_agent_actions = [np.zeros(base_env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
+        # base_env used
+        zero_agent_actions = [np.zeros(env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
         #print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
         
         last_agent_actions = [zero_agent_actions for _ in range(delay_step)]
