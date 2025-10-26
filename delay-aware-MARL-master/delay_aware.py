@@ -14,6 +14,12 @@ from algorithms.maddpg import MADDPG
 
 USE_CUDA = True  # torch.cuda.is_available()
 
+# Force CUDA initialization early
+if torch.cuda.is_available():
+    torch.cuda.init()
+    print(f" CUDA initialized: {torch.cuda.get_device_name(0)}")
+else:
+    print(" No CUDA available, using CPU")
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
