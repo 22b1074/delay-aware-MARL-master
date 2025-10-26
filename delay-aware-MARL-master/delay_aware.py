@@ -132,7 +132,7 @@ def run(config):
                 obs[0][a_i] = np.append(agent_obs, last_agent_actions[_][a_i])
                 #print(f"[DEBUG]   After append, obs[0][{a_i}] shape: {obs[0][a_i].shape}")
         #print("\n[DEBUG] Final obs shapes after appending:")
-        for i, o in enumerate(obs[0]):
+        #for i, o in enumerate(obs[0]):
             #print(f"[DEBUG] obs[0][{i}] final shape: {o.shape}")
         for et_i in range(config.episode_length):
             torch_obs = [Variable(torch.Tensor(np.vstack(obs[:, i])),
