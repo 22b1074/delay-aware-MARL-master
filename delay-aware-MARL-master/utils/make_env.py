@@ -16,6 +16,12 @@ class MultiAgentEnvAdapter:
     def reset(self, **kwargs):
         obs_dict, _ = self.env.reset(**kwargs)
         obs_n = [obs_dict[a] for a in self.agents]
+        
+        # ADD THESE DEBUG PRINTS HERE:
+        print(f"[DEBUG] obs_n types: {[type(o) for o in obs_n]}")
+        print(f"[DEBUG] obs_n shapes: {[o.shape if hasattr(o, 'shape') else 'no shape' for o in obs_n]}")
+        print(f"[DEBUG] obs_n dtypes: {[o.dtype if hasattr(o, 'dtype') else 'no dtype' for o in obs_n]}")
+        
         return obs_n
 
     def step(self, action_n):
