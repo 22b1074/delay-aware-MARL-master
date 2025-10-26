@@ -102,7 +102,6 @@ def run(config):
           #  print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
 
         obs = env.reset()
-        episode_reward = np.zeros(maddpg.nagents)
         #print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
         #print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
         #for i, o in enumerate(obs[0]):
@@ -152,8 +151,6 @@ def run(config):
                 last_agent_actions.append(agent_actions_tmp)
             actions = [actions]
             next_obs, rewards, dones, infos = env.step(actions)
-            # Accumulate rewards per agent
-            episode_reward += np.array(rewards)
             for a_i, agent_obs in enumerate(next_obs[0]):
                 for _ in range(len(last_agent_actions)):
                     if a_i == 2:
