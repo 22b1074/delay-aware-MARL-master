@@ -65,10 +65,10 @@ def run(config):
     print(f"[DEBUG] Number of agents: {base_env.n}")
     print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
     print(f"[DEBUG] Action spaces: {base_env.action_space}")
-for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
-    print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
-    for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
+    for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
         print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
+        for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
+            print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
     maddpg = MADDPG.init_from_env_with_delay(env, agent_alg=config.agent_alg,
                                   adversary_alg=config.adversary_alg,
