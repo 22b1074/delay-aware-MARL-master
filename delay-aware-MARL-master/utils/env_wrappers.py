@@ -111,15 +111,22 @@ class DummyVecEnv(VecEnv):
         self.actions = actions
 
     def step_wait(self):
-        results = [env.step(a) for (a,env) in zip(self.actions, self.envs)]
-        obs, rews, dones, infos = map(np.array, zip(*results))
+        results = [env.step(a) for (a, env) in zip(self.actions, self.envs)]
+        
+        # Unpack results without forcing homogeneous arrays
+        results_unpacked = list(zip(*results))
+        obs = np.array(results_unpacked[0], dtype=object)  # Object array for different shapes
+        rews = np.array(results_unpacked[1])
+        dones = np.array(results_unpacked[2])
+        infos = results_unpacked[3]
+        
         self.ts += 1
         for (i, done) in enumerate(dones):
             if all(done): 
                 obs[i] = self.envs[i].reset()
                 self.ts[i] = 0
         self.actions = None
-        return np.array(obs), np.array(rews), np.array(dones), infos
+        return obs, rews, dones, infos  # Remove the extra np.array wrapping
 
     def reset(self):
         results = [env.reset() for env in self.envs]
