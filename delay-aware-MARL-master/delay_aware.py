@@ -21,8 +21,8 @@ def make_parallel_env(env_id, n_rollout_threads, seed, discrete_action):
     def get_env_fn(rank):
         def init_env():
             env = make_env(env_id, discrete_action=discrete_action)
-            env.seed(seed + rank * 1000)
             np.random.seed(seed + rank * 1000)
+            env.reset(seed=seed + rank * 1000)
             return env
         return init_env
     if n_rollout_threads == 1:
