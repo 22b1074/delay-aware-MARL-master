@@ -70,10 +70,11 @@ def run(config):
         print("Episodes %i-%i of %i" % (ep_i + 1,
                                         ep_i + 1 + config.n_rollout_threads,
                                         config.n_episodes))
-        print("[DEBUG] Agents in environment:", env.agents)
+        base_env = env.unwrapped or env.envs[0]
+        print("[DEBUG] Agents in environment:", base_env.agents)
         print("[DEBUG] Observation spaces per agent:")
-        for agent in env.agents:
-            obs_space = env.observation_space(agent)
+        for agent in base_env.agents:
+            obs_space = base_env.observation_space(agent)
             print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
 
         obs = env.reset()
