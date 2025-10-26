@@ -128,8 +128,9 @@ def run(config):
         for a_i, agent_obs in enumerate(obs[0]):
             print(f"[DEBUG] Agent {a_i} original obs shape: {agent_obs.shape}")
             for _ in range(len(last_agent_actions)):
+                obs[0][a_i] = agent_obs 
                 print(f"[DEBUG]   Appending last_agent_actions[{_}][{a_i}] shape: {last_agent_actions[_][a_i].shape}")
-                obs[0][a_i] = np.append(agent_obs, last_agent_actions[_][a_i])
+                obs[0][a_i] = np.append(obs[0][a_i], last_agent_actions[_][a_i])
                 print(f"[DEBUG]   After append, obs[0][{a_i}] shape: {obs[0][a_i].shape}")
         print("\n[DEBUG] Final obs shapes after appending:")
         for i, o in enumerate(obs[0]):
