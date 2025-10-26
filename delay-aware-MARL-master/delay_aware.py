@@ -75,11 +75,11 @@ def run(config):
                                   tau=config.tau,
                                   lr=config.lr,
                                   hidden_dim=config.hidden_dim,
-                                  delay_step = 1)
+                                  delay_step = 2)
     print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
     for i, agent in enumerate(maddpg.agents):
         print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
-    delay_step = 1
+    delay_step = 2
     replay_buffer = ReplayBuffer(
         config.buffer_length, 
         maddpg.nagents,
