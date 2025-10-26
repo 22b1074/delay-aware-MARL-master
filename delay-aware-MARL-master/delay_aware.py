@@ -108,7 +108,7 @@ def run(config):
         for i, o in enumerate(obs[0]):
             print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
         
-         obs.shape = (n_rollout_threads, nagent)(nobs), nobs differs per agent so not tensor
+        obs.shape = (n_rollout_threads, nagent)(nobs), nobs differs per agent so not tensor
         if USE_CUDA:
             maddpg.prep_rollouts(device='gpu')
         else:
