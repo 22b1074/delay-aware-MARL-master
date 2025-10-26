@@ -65,7 +65,14 @@ class DDPGAgent(object):
         """
 #         print('o', obs)
 #         print('p', self.policy)
-        obs = obs.to(device)
+        #obs = obs.to(device)
+        if next(self.policy.parameters()).is_cuda:
+            device = torch.device("cuda")
+            obs = obs.to(device)
+        else:
+            device = torch.device("cpu")
+            obs = obs.to(device)
+
         action = self.policy(obs)
 #         print('1',action)
         if self.discrete_action:
