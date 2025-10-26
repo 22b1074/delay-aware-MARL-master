@@ -154,11 +154,12 @@ def run(config):
             actions = [actions]
             next_obs, rewards, dones, infos = env.step(actions)
             for a_i, agent_obs in enumerate(next_obs[0]):
+                next_obs[0][a_i] = agent_obs  # Initialize
                 for _ in range(len(last_agent_actions)):
                     if a_i == 2:
-                        next_obs[0][a_i] = np.append(agent_obs, 4*last_agent_actions[_][a_i])
+                        next_obs[0][a_i] = np.append(next_obs[0][a_i], 4*last_agent_actions[_][a_i])
                     else:
-                        next_obs[0][a_i] = np.append(agent_obs, 3*last_agent_actions[_][a_i])
+                        next_obs[0][a_i] = np.append(next_obs[0][a_i], 3*last_agent_actions[_][a_i])
             agent_actions[0] = agent_actions[0]*3
             agent_actions[1] = agent_actions[1]*3
             agent_actions.append(agent_actions[1]*4)
