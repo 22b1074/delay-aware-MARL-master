@@ -60,9 +60,13 @@ def run(config):
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
-    print(f"[DEBUG] Number of agents: {env.n}")
-    print(f"[DEBUG] Observation spaces: {env.observation_space}")
-    print(f"[DEBUG] Action spaces: {env.action_space}")
+    # Access the underlying environment
+    base_env = env.envs[0]  # Get the first environment from the wrapper
+    print(f"[DEBUG] Number of agents: {base_env.n}")
+    print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
+    print(f"[DEBUG] Action spaces: {base_env.action_space}")
+for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
+    print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
     for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
         print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
