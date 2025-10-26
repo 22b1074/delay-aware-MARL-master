@@ -33,7 +33,7 @@ class MultiAgentEnvAdapter:
         actions = {a: act for a, act in zip(self.agents, action_n)}
         obs_dict, rewards_dict, terminations, truncations, infos_dict = self.env.step(actions)
 
-        obs_n = [obs_dict[a] for a in self.agents]
+        obs_n = [obs_dict[a].reshape(-1,1) for a in self.agents]
         reward_n = [rewards_dict[a] for a in self.agents]
         done_n = [terminations[a] or truncations[a] for a in self.agents]
         info_n = {'n': [infos_dict[a] for a in self.agents]}
