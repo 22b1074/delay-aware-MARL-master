@@ -6,9 +6,9 @@ class MultiAgentEnvAdapter:
 
 
     def reset(self, **kwargs):
-    obs_dict, _ = self.env.reset(**kwargs)  # pass any kwargs to underlying env
-    obs_n = [obs_dict[a] for a in self.agents]
-    return obs_n
+        obs_dict, _ = self.env.reset(**kwargs)  # pass any kwargs to underlying env
+        obs_n = [obs_dict[a] for a in self.agents]
+        return obs_n
 
 
     def step(self, action_n):
