@@ -70,6 +70,16 @@ class MADDPG(object):
     def reset_noise(self):
         for a in self.agents:
             a.reset_noise()
+    def get_shape(space):
+        from gym.spaces import Discrete, Box, MultiDiscrete
+        if isinstance(space, Discrete):
+            return space.n
+        elif isinstance(space, Box):
+            return space.shape[0]
+        elif isinstance(space, MultiDiscrete):
+            return len(space.high)
+        else:
+            raise NotImplementedError(f"Unknown action space type {type(space)}")
 
     def step(self, observations, explore=False):
         """
