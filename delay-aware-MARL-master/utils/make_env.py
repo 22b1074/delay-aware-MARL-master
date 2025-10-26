@@ -15,7 +15,7 @@ class MultiAgentEnvAdapter:
         print(f"[DEBUG] Agents: {self.agents}, Total: {self.n}")
     def reset(self, **kwargs):
         obs_dict, _ = self.env.reset(**kwargs)
-        obs_n = [obs_dict[a].reshape(-1,1) for a in self.agents]
+        obs_n = [obs_dict[a] for a in self.agents]
         
         # ADD THESE DEBUG PRINTS HERE:
         print(f"[DEBUG] obs_n types: {[type(o) for o in obs_n]}")
@@ -33,7 +33,7 @@ class MultiAgentEnvAdapter:
         actions = {a: act for a, act in zip(self.agents, action_n)}
         obs_dict, rewards_dict, terminations, truncations, infos_dict = self.env.step(actions)
 
-        obs_n = [obs_dict[a].reshape(-1,1) for a in self.agents]
+        obs_n = [obs_dict[a] for a in self.agents]
         reward_n = [rewards_dict[a] for a in self.agents]
         done_n = [terminations[a] or truncations[a] for a in self.agents]
         info_n = {'n': [infos_dict[a] for a in self.agents]}
