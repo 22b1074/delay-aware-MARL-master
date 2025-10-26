@@ -15,7 +15,7 @@ class MultiAgentEnvAdapter:
         print(f"[DEBUG] Agents: {self.agents}, Total: {self.n}")
     def reset(self, **kwargs):
         obs_dict, _ = self.env.reset(**kwargs)
-        obs_n = [obs_dict[a] for a in self.agents]
+        obs_n = [obs_dict[a].reshape(-1,1) for a in self.agents]
         
         # ADD THESE DEBUG PRINTS HERE:
         print(f"[DEBUG] obs_n types: {[type(o) for o in obs_n]}")
