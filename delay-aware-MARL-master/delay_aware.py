@@ -129,13 +129,14 @@ def run(config):
         
             last_agent_actions.append([zero_agent_actions.copy() for _ in range(delay_step)])
             print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
+        # Append delayed actions to observations for ALL environments
         for env_idx in range(config.n_rollout_threads):
-            for a_i, agent_obs in enumerate(obs[env_idx]):
-                print(f"[DEBUG] Agent {a_i} original obs shape: {agent_obs.shape}")
-                for _ in range(len(last_agent_actions)):
-                    #obs[0][a_i] = agent_obs 
-                    print(f"[DEBUG]   Appending last_agent_actions[{_}][{a_i}] shape: {last_agent_actions[env_idx][_][a_i].shape}")
-                    obs[env_idx][a_i] = np.append(obs[env_idx][a_i], last_agent_actions[env_idx][_][a_i])
+            for a_i in range(len(obs[env_idx])):
+                agent_obs = obs[env_idx][a_i]
+                for delay_idx in range(delay_step):
+                    agent_obs = np.append(agent_obs, last_agent_actions[env_idx][delay_idx][a_i])
+                obs[env_idx][a_i] = agent_obs
+        
         print(f"[DEBUG] After appending delays:")
         for env_idx in range(min(2, config.n_rollout_threads)):  # Print first 2 envs
             print(f"[DEBUG]   Env {env_idx}: agent shapes = {[obs[env_idx][a].shape for a in range(len(obs[env_idx]))]}")
