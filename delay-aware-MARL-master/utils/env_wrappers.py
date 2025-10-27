@@ -58,6 +58,7 @@ class SubprocVecEnv(VecEnv):
         observation_space, action_space = self.remotes[0].recv()
         self.remotes[0].send(('get_agent_types', None))
         self.agent_types = self.remotes[0].recv()
+        self.envs = [env_fns[0]()]  # Create first env for property access
         VecEnv.__init__(self, len(env_fns), observation_space, action_space)
 
     def step_async(self, actions):
@@ -69,7 +70,7 @@ class SubprocVecEnv(VecEnv):
         results = [remote.recv() for remote in self.remotes]
         self.waiting = False
         obs, rews, dones, infos = zip(*results)
-        return np.stack(obs), np.stack(rews), np.stack(dones), infos
+        return np.array(obs, dtype=object), np.stack(rews), np.stack(dones), infos
 
     def reset(self):
         for remote in self.remotes:
