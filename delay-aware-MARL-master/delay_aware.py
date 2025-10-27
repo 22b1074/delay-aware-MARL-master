@@ -123,7 +123,7 @@ def run(config):
 
         # base_env used
         last_agent_actions = []
-        for env_idx in range(cnfig.n_rollout_threads):
+        for env_idx in range(config.n_rollout_threads):
             zero_agent_actions = [np.zeros(base_env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
             print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
         
