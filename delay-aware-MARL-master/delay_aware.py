@@ -61,14 +61,15 @@ def run(config):
                             config.discrete_action)
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     # Access the underlying environment
-    base_env = env.envs[0]  # Get the first environment from the wrapper
-    print(f"[DEBUG] Number of agents: {base_env.n}")
-    print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
-    print(f"[DEBUG] Action spaces: {base_env.action_space}")
-    for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
-        print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
-        for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
-            print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
+    #base_env = env.envs[0]  # Get the first environment from the wrapper
+    #print(f"[DEBUG] Number of agents: {base_env.n}")
+    #print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
+    #print(f"[DEBUG] Action spaces: {base_env.action_space}")
+    # base_env used
+    #for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
+     #   print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
+      #  for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
+       #     print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
     maddpg = MADDPG.init_from_env_with_delay(env, agent_alg=config.agent_alg,
                                   adversary_alg=config.adversary_alg,
@@ -86,10 +87,10 @@ def run(config):
     replay_buffer = ReplayBuffer(
         config.buffer_length, 
         maddpg.nagents,
-        [base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step 
+        [env.observation_space[i].shape[0] + env.action_space[i].shape[0] * delay_step 
          for i in range(maddpg.nagents)],
         [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
-         for acsp in base_env.action_space]
+         for acsp in env.action_space]
     )
     #print(f"\n[DEBUG] Replay buffer obs dims: {[base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step for i in range(maddpg.nagents)]}")
     t = 0
@@ -121,19 +122,24 @@ def run(config):
         maddpg.reset_noise()
 
         # base_env used
-        zero_agent_actions = [np.zeros(base_env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
-        print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
+        last_agent_actions = []
+        for env_idx in range(cnfig.n_rollout_threads):
+            zero_agent_actions = [np.zeros(base_env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
+            print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
         
-        last_agent_actions = [zero_agent_actions for _ in range(delay_step)]
-        print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
+            last_agent_actions = [zero_agent_actions.copy() for _ in range(delay_step)]
+            print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
+        for env_idx in range(config.n_rollout_threads):
+            for a_i, agent_obs in enumerate(obs[env_idx]):
+                print(f"[DEBUG] Agent {a_i} original obs shape: {agent_obs.shape}")
+                for _ in range(len(last_agent_actions)):
+                    #obs[0][a_i] = agent_obs 
+                    print(f"[DEBUG]   Appending last_agent_actions[{_}][{a_i}] shape: {last_agent_actions[_][a_i].shape}")
+                    obs[env_idx][a_i] = np.append(obs[env_idx][a_i], last_agent_actions[_][a_i])
+        print(f"[DEBUG] After appending delays:")
+        for env_idx in range(min(2, config.n_rollout_threads)):  # Print first 2 envs
+            print(f"[DEBUG]   Env {env_idx}: agent shapes = {[obs[env_idx][a].shape for a in range(len(obs[env_idx]))]}")
         
-        for a_i, agent_obs in enumerate(obs[0]):
-            print(f"[DEBUG] Agent {a_i} original obs shape: {agent_obs.shape}")
-            for _ in range(len(last_agent_actions)):
-                #obs[0][a_i] = agent_obs 
-                print(f"[DEBUG]   Appending last_agent_actions[{_}][{a_i}] shape: {last_agent_actions[_][a_i].shape}")
-                obs[0][a_i] = np.append(obs[0][a_i], last_agent_actions[_][a_i])
-                print(f"[DEBUG]   After append, obs[0][{a_i}] shape: {obs[0][a_i].shape}")
         print("\n[DEBUG] Final obs shapes after appending:")
         for i, o in enumerate(obs[0]):
             print(f"[DEBUG] obs[0][{i}] final shape: {o.shape}")
@@ -145,26 +151,41 @@ def run(config):
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
             print(f"[DEBUG] maddpg.step completed")
             agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
-
-            if delay_step == 0:
-                actions = [[ac[i] for ac in agent_actions] for i in range(config.n_rollout_threads)]
-            else:
-                agent_actions_tmp = [[ac[i] for ac in agent_actions] for i in range(config.n_rollout_threads)][0]
-                actions = last_agent_actions[0]
-                last_agent_actions = last_agent_actions[1:]
-                last_agent_actions.append(agent_actions_tmp)
-            actions = [actions]
+            actions = []
+            for env_idx in range(config.n_rollout_threads):
+                if delay_step == 0:
+                    env_actions = [agent_actions[a_i][env_idx] for a_i in range(maddpg.nagents)]
+                else:
+                    # Get current actions for this environment
+                    agent_actions_tmp = [agent_actions[a_i][env_idx] for a_i in range(maddpg.nagents)]
+                    # Use oldest delayed action
+                    env_actions = last_agent_actions[env_idx][0]
+                    # Update delay buffer
+                    last_agent_actions[env_idx] = last_agent_actions[env_idx][1:]
+                    last_agent_actions[env_idx].append(agent_actions_tmp)
+                
+                actions.append(env_actions)
             next_obs, rewards, dones, infos = env.step(actions)
-            for a_i, agent_obs in enumerate(next_obs[0]):
-                #next_obs[0][a_i] = agent_obs  # Initialize
-                for _ in range(len(last_agent_actions)):
-                    if a_i == 2:
-                        next_obs[0][a_i] = np.append(next_obs[0][a_i], 4*last_agent_actions[_][a_i])
-                    else:
-                        next_obs[0][a_i] = np.append(next_obs[0][a_i], 3*last_agent_actions[_][a_i])
-            agent_actions[0] = agent_actions[0]*3
-            agent_actions[1] = agent_actions[1]*3
-            agent_actions.append(agent_actions[1]*4)
+            for env_idx in range(config.n_rollout_threads):
+                for a_i in range(len(next_obs[env_idx])):
+                    agent_obs = next_obs[env_idx][a_i]
+                    for delay_idx in range(delay_step):
+                        # Apply scaling if needed (keeping your original logic)
+                        if a_i == 2:
+                            agent_obs = np.append(agent_obs, 4*last_agent_actions[env_idx][delay_idx][a_i])
+                        else:
+                            agent_obs = np.append(agent_obs, 3*last_agent_actions[env_idx][delay_idx][a_i])
+                    next_obs[env_idx][a_i] = agent_obs
+            # Scale agent actions for replay buffer 
+            scaled_agent_actions = []
+            for a_i in range(maddpg.nagents):
+                if a_i == 2:
+                    scaled_agent_actions.append(agent_actions[a_i] * 4)
+                else:
+                    scaled_agent_actions.append(agent_actions[a_i] * 3)
+            #agent_actions[0] = agent_actions[0]*3
+            #agent_actions[1] = agent_actions[1]*3
+            #agent_actions.append(agent_actions[1]*4)
             replay_buffer.push(obs, agent_actions, rewards, next_obs, dones)
     
 
