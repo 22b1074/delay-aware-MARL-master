@@ -57,7 +57,7 @@ class MultiAgentEnvAdapter:
         return spaces
 
 
-def make_env(scenario_name, discrete_action=False):
+def make_env(scenario_name, discrete_action=False, render_mode=None):
     scenario_dict = {
         'simple_speaker_listener': ssl_env,
         'simple_spread': ss_env,
