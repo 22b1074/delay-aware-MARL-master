@@ -37,6 +37,7 @@ def worker(remote, parent_remote, env_fn_wrapper):
             raise NotImplementedError
 
 
+
 class SubprocVecEnv(VecEnv):
     def __init__(self, env_fns, spaces=None):
         """
@@ -49,7 +50,7 @@ class SubprocVecEnv(VecEnv):
         self.ps = [Process(target=worker, args=(work_remote, remote, CloudpickleWrapper(env_fn)))
             for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
         for p in self.ps:
-            p.daemon = True # if the main process crashes, we should not cause things to hang
+            p.daemon = True
             p.start()
         for remote in self.work_remotes:
             remote.close()
@@ -58,7 +59,7 @@ class SubprocVecEnv(VecEnv):
         observation_space, action_space = self.remotes[0].recv()
         self.remotes[0].send(('get_agent_types', None))
         self.agent_types = self.remotes[0].recv()
-        self.envs = [env_fns[0]()]  # Create first env for property access
+        self.envs = [env_fns[0]()]
         VecEnv.__init__(self, len(env_fns), observation_space, action_space)
 
     def step_async(self, actions):
@@ -69,20 +70,44 @@ class SubprocVecEnv(VecEnv):
     def step_wait(self):
         results = [remote.recv() for remote in self.remotes]
         self.waiting = False
-        obs, rews, dones, infos = zip(*results)
-        return np.array(obs, dtype=object), np.stack(rews), np.stack(dones), infos
+        obs_raw, rews, dones, infos = zip(*results)
+        
+        # Convert to proper structure with float32 dtype
+        obs_list = []
+        for env_obs in obs_raw:
+            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            obs_list.append(agent_list)
+        obs = np.array(obs_list, dtype=object)
+        
+        return obs, np.stack(rews), np.stack(dones), infos
 
     def reset(self):
         for remote in self.remotes:
             remote.send(('reset', None))
-        return np.array([remote.recv() for remote in self.remotes], dtype=object)
-        #return np.stack([remote.recv() for remote in self.remotes])
+        results = [remote.recv() for remote in self.remotes]
+        
+        # Convert to proper structure with float32 dtype
+        obs_list = []
+        for env_obs in results:
+            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            obs_list.append(agent_list)
+        obs = np.array(obs_list, dtype=object)
+        
+        return obs
 
     def reset_task(self):
         for remote in self.remotes:
             remote.send(('reset_task', None))
-        return np.array([remote.recv() for remote in self.remotes], dtype=object)
-        #return np.stack([remote.recv() for remote in self.remotes])
+        results = [remote.recv() for remote in self.remotes]
+        
+        # Convert to proper structure with float32 dtype
+        obs_list = []
+        for env_obs in results:
+            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            obs_list.append(agent_list)
+        obs = np.array(obs_list, dtype=object)
+        
+        return obs
 
     def close(self):
         if self.closed:
@@ -116,38 +141,40 @@ class DummyVecEnv(VecEnv):
     def step_wait(self):
         results = [env.step(a) for (a, env) in zip(self.actions, self.envs)]
         
-        # Unpack results without forcing homogeneous arrays
-        results_unpacked = list(zip(*results))
-        #obs = np.array(results_unpacked[0], dtype=object)  # Object array for different shapes
-        obs_raw = results_unpacked[0]
-        obs = np.array([
-            [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            for env_obs in obs_raw
-        ], dtype=object)
-        rews = np.array(results_unpacked[1])
-        dones = np.array(results_unpacked[2])
-        infos = results_unpacked[3]
+        # Unpack results
+        obs_raw, rews, dones, infos = zip(*results)
+        
+        # Convert to proper structure with float32 dtype
+        obs_list = []
+        for env_obs in obs_raw:
+            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            obs_list.append(agent_list)
+        obs = np.array(obs_list, dtype=object)
+        
+        rews = np.array(rews)
+        dones = np.array(dones)
         
         self.ts += 1
         for (i, done) in enumerate(dones):
             if all(done): 
-                #obs[i] = self.envs[i].reset()
                 obs_raw_reset = self.envs[i].reset()
                 obs[i] = np.array([np.asarray(agent_obs, dtype=np.float32) 
                                    for agent_obs in obs_raw_reset], dtype=object)
                 self.ts[i] = 0
         self.actions = None
-        return obs, rews, dones, infos  # Remove the extra np.array wrapping
+        return obs, rews, dones, infos
 
     def reset(self):
         results = [env.reset() for env in self.envs]
-        # Convert to object array (allows different shapes)
-        obs = np.array([
-            [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            for env_obs in results
-        ], dtype=object)
+        
+        # Convert to proper structure with float32 dtype
+        obs_list = []
+        for env_obs in results:
+            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            obs_list.append(agent_list)
+        obs = np.array(obs_list, dtype=object)
+        
         return obs
-        #return np.array(results, dtype=object)     
 
     def close(self):
         return
