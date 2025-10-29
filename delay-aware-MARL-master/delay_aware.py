@@ -107,16 +107,23 @@ def run(config):
           #  print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
 
         obs = env.reset()
-        for env_idx in range(len(obs)):
-            for a_i in range(len(obs[env_idx])):
-                if obs[env_idx][a_i].dtype == object or obs[env_idx][a_i].dtype != np.float32:
-                    obs[env_idx][a_i] = np.asarray(obs[env_idx][a_i], dtype=np.float32)
+
+        # FIX: Numpy is converting to object dtype when creating the array
+        # We need to reconstruct it properly
+        if len(obs) > 0 and len(obs[0]) > 0:
+            if obs[0][0].dtype == object:
+                print("[FIX] Detected object dtype, converting to float32...")
+                obs_fixed = np.empty(len(obs), dtype=object)
+                for env_idx in range(len(obs)):
+                    obs_fixed[env_idx] = [np.array(obs[env_idx][a_i], dtype=np.float32) 
+                                          for a_i in range(len(obs[env_idx]))]
+                obs = obs_fixed
+                print("[FIX] Conversion complete")
         
         print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
         print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
         for i, o in enumerate(obs[0]):
             print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
-        
         
         if USE_CUDA:
             maddpg.prep_rollouts(device='gpu')
