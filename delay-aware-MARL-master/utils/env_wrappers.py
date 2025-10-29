@@ -37,7 +37,6 @@ def worker(remote, parent_remote, env_fn_wrapper):
             raise NotImplementedError
 
 
-
 class SubprocVecEnv(VecEnv):
     def __init__(self, env_fns, spaces=None):
         """
@@ -72,12 +71,17 @@ class SubprocVecEnv(VecEnv):
         self.waiting = False
         obs_raw, rews, dones, infos = zip(*results)
         
-        # Convert to proper structure with float32 dtype
+        # FIXED: Don't use dtype=object on outer array
         obs_list = []
         for env_obs in obs_raw:
+            # Each agent_obs is already a float32 numpy array
             agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
             obs_list.append(agent_list)
-        obs = np.array(obs_list, dtype=object)
+        
+        # Create array without forcing object dtype - let numpy decide
+        obs = np.empty(len(obs_list), dtype=object)
+        for i, agent_list in enumerate(obs_list):
+            obs[i] = agent_list
         
         return obs, np.stack(rews), np.stack(dones), infos
 
@@ -86,12 +90,16 @@ class SubprocVecEnv(VecEnv):
             remote.send(('reset', None))
         results = [remote.recv() for remote in self.remotes]
         
-        # Convert to proper structure with float32 dtype
+        # FIXED: Don't use dtype=object on outer array
         obs_list = []
         for env_obs in results:
             agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
             obs_list.append(agent_list)
-        obs = np.array(obs_list, dtype=object)
+        
+        # Create array without forcing object dtype - let numpy decide
+        obs = np.empty(len(obs_list), dtype=object)
+        for i, agent_list in enumerate(obs_list):
+            obs[i] = agent_list
         
         return obs
 
@@ -100,12 +108,16 @@ class SubprocVecEnv(VecEnv):
             remote.send(('reset_task', None))
         results = [remote.recv() for remote in self.remotes]
         
-        # Convert to proper structure with float32 dtype
+        # FIXED: Don't use dtype=object on outer array
         obs_list = []
         for env_obs in results:
             agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
             obs_list.append(agent_list)
-        obs = np.array(obs_list, dtype=object)
+        
+        # Create array without forcing object dtype - let numpy decide
+        obs = np.empty(len(obs_list), dtype=object)
+        for i, agent_list in enumerate(obs_list):
+            obs[i] = agent_list
         
         return obs
 
@@ -144,12 +156,16 @@ class DummyVecEnv(VecEnv):
         # Unpack results
         obs_raw, rews, dones, infos = zip(*results)
         
-        # Convert to proper structure with float32 dtype
+        # FIXED: Don't use dtype=object on outer array
         obs_list = []
         for env_obs in obs_raw:
             agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
             obs_list.append(agent_list)
-        obs = np.array(obs_list, dtype=object)
+        
+        # Create array without forcing object dtype - let numpy decide
+        obs = np.empty(len(obs_list), dtype=object)
+        for i, agent_list in enumerate(obs_list):
+            obs[i] = agent_list
         
         rews = np.array(rews)
         dones = np.array(dones)
@@ -158,8 +174,9 @@ class DummyVecEnv(VecEnv):
         for (i, done) in enumerate(dones):
             if all(done): 
                 obs_raw_reset = self.envs[i].reset()
-                obs[i] = np.array([np.asarray(agent_obs, dtype=np.float32) 
-                                   for agent_obs in obs_raw_reset], dtype=object)
+                reset_agent_list = [np.asarray(agent_obs, dtype=np.float32) 
+                                    for agent_obs in obs_raw_reset]
+                obs[i] = reset_agent_list
                 self.ts[i] = 0
         self.actions = None
         return obs, rews, dones, infos
@@ -167,12 +184,16 @@ class DummyVecEnv(VecEnv):
     def reset(self):
         results = [env.reset() for env in self.envs]
         
-        # Convert to proper structure with float32 dtype
+        # FIXED: Don't use dtype=object on outer array
         obs_list = []
         for env_obs in results:
             agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
             obs_list.append(agent_list)
-        obs = np.array(obs_list, dtype=object)
+        
+        # Create array without forcing object dtype - let numpy decide
+        obs = np.empty(len(obs_list), dtype=object)
+        for i, agent_list in enumerate(obs_list):
+            obs[i] = agent_list
         
         return obs
 
