@@ -107,6 +107,10 @@ def run(config):
           #  print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
 
         obs = env.reset()
+        for env_idx in range(len(obs)):
+            for a_i in range(len(obs[env_idx])):
+                obs[env_idx][a_i] = np.asarray(obs[env_idx][a_i], dtype=np.float32)
+
         print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
         print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
         for i, o in enumerate(obs[0]):
