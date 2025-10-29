@@ -66,15 +66,39 @@ def make_env(scenario_name, discrete_action=False, render_mode=None, **env_kwarg
         'simple_reference': sr_env,
         'simple_tag': st_env,
     }
-
     if scenario_name not in scenario_dict:
         raise ValueError(f"Scenario {scenario_name} not found in MPE2 environments")
+    
     env_params = {
         'max_cycles': env_kwargs.pop('max_cycles', 25),
         'continuous_actions': not discrete_action,
         'render_mode': render_mode
     }
     env_params.update(env_kwargs)
+    
+    print(f"\n[MAKE_ENV DEBUG] Creating {scenario_name} with params:")
+    print(f"  continuous_actions: {env_params['continuous_actions']}")
+    print(f"  max_cycles: {env_params['max_cycles']}")
+    print(f"  extra_params: {env_kwargs}")
+    
     env = scenario_dict[scenario_name](**env_params)
+    
+    # Check the raw environment before adapter
+    print(f"\n[MAKE_ENV DEBUG] Raw PettingZoo environment created")
+    obs_dict, _ = env.reset()
+    print(f"  Agents: {list(obs_dict.keys())}")
+    for agent_name in obs_dict.keys():
+        obs_shape = obs_dict[agent_name].shape
+        action_space = env.action_space(agent_name)
+        obs_space = env.observation_space(agent_name)
+        print(f"  {agent_name}:")
+        print(f"    Observation shape: {obs_shape}")
+        print(f"    Observation space: {obs_space}")
+        print(f"    Action space: {action_space}")
+        if hasattr(action_space, 'shape'):
+            print(f"    Action shape: {action_space.shape}")
+        elif hasattr(action_space, 'n'):
+            print(f"    Action n (discrete): {action_space.n}")
+    
     env = MultiAgentEnvAdapter(env)
     return env
