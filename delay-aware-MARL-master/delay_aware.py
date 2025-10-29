@@ -1,4 +1,3 @@
-
 import argparse
 import torch
 import time
@@ -37,6 +36,29 @@ def make_parallel_env(env_id, n_rollout_threads, seed, discrete_action):
     else:
         return SubprocVecEnv([get_env_fn(i) for i in range(n_rollout_threads)])
 
+def compute_virtual_action(action_buffer, delay_float):
+    """
+    Compute virtual effective action for non-integral delays.
+    
+    Args:
+        action_buffer: List of past actions [newest, ..., oldest]
+        delay_float: Non-integral delay (e.g., 2.3)
+    
+    Returns:
+        Virtual effective action: (1-f)*a[I+1] + f*a[I]
+    """
+    I = int(np.floor(delay_float))  # Integer part
+    f = delay_float - I  # Fractional part
+    
+    if f == 0:
+        # Pure integral delay
+        return action_buffer[I]
+    else:
+        # Non-integral delay: interpolate between two actions
+        # action_buffer[I] is the action I steps ago
+        # action_buffer[I+1] is the action I+1 steps ago
+        return (1 - f) * action_buffer[I] + f * action_buffer[I + 1]
+
 def run(config):
     model_dir = Path('./models') / config.env_id / config.model_name
     if not model_dir.exists():
@@ -60,58 +82,52 @@ def run(config):
         torch.set_num_threads(config.n_training_threads)
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
+    
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
-    # Access the underlying environment
-    #base_env = env.envs[0]  # Get the first environment from the wrapper
-    #print(f"[DEBUG] Number of agents: {base_env.n}")
-    #print(f"[DEBUG] Observation spaces: {base_env.observation_space}")
-    #print(f"[DEBUG] Action spaces: {base_env.action_space}")
-    # base_env used
-    #for i, (obs_space, act_space) in enumerate(zip(base_env.observation_space, base_env.action_space)):
-     #   print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
-      #  for i, (obs_space, act_space) in enumerate(zip(env.observation_space, env.action_space)):
-       #     print(f"[DEBUG] Agent {i}: obs_shape={obs_space.shape}, action_shape={act_space.shape}")
+    print(f"[DEBUG] Delay step: {config.delay_step} (I={int(np.floor(config.delay_step))}, f={config.delay_step - int(np.floor(config.delay_step))})")
+    
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
-    maddpg = MADDPG.init_from_env_with_delay(env, agent_alg=config.agent_alg,
-                                  adversary_alg=config.adversary_alg,
-                                  tau=config.tau,
-                                  lr=config.lr,
-                                  hidden_dim=config.hidden_dim,
-                                  delay_step = 3)
+    
+    # Calculate buffer size needed (ceiling of delay)
+    delay_buffer_size = int(np.ceil(config.delay_step)) + 1
+    
+    maddpg = MADDPG.init_from_env_with_delay(
+        env, 
+        agent_alg=config.agent_alg,
+        adversary_alg=config.adversary_alg,
+        tau=config.tau,
+        lr=config.lr,
+        hidden_dim=config.hidden_dim,
+        delay_step=config.delay_step
+    )
+    
     print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
+    print(f"[DEBUG] Delay buffer size: {delay_buffer_size}")
     for i, agent in enumerate(maddpg.agents):
-        print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn}")
-        print(f"[DEBUG] Agent {i} policy first layer input features: {agent.policy.in_fn.num_features}")
-        print(f"[DEBUG] Agent {i} policy BatchNorm running_mean size: {agent.policy.in_fn.running_mean.shape}")
-    delay_step = 3
-    #base_env used
+        print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn.num_features}")
+    
+    # Calculate observation dimension for replay buffer
+    # Each agent sees: original_obs + delay_buffer_size * action_dim
     replay_buffer = ReplayBuffer(
         config.buffer_length, 
         maddpg.nagents,
-        [env.observation_space[i].shape[0] + env.action_space[i].shape[0] * delay_step 
+        [env.observation_space[i].shape[0] + env.action_space[i].shape[0] * delay_buffer_size 
          for i in range(maddpg.nagents)],
         [acsp.shape[0] if isinstance(acsp, Box) else acsp.n
          for acsp in env.action_space]
     )
-    #print(f"\n[DEBUG] Replay buffer obs dims: {[base_env.observation_space[i].shape[0] + base_env.action_space[i].shape[0] * delay_step for i in range(maddpg.nagents)]}")
+    
     t = 0
     for ep_i in range(0, config.n_episodes, config.n_rollout_threads):
         print("Episodes %i-%i of %i" % (ep_i + 1,
                                         ep_i + 1 + config.n_rollout_threads,
                                         config.n_episodes))
-        #base_env = env.envs[0]
-        #print("[DEBUG] Agents in environment:", base_env.agents)
-        #print("[DEBUG] Observation spaces per agent:")
-        #for agent in base_env.agents:
-         #   obs_space = base_env.observation_space(agent)
-          #  print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
-
+        
         obs = env.reset()
-        print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
-        print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
+        
+        print(f"[DEBUG] After reset, obs shape: {obs.shape}")
         for i, o in enumerate(obs[0]):
             print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
-        
         
         if USE_CUDA:
             maddpg.prep_rollouts(device='gpu')
@@ -122,78 +138,96 @@ def run(config):
         maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
         maddpg.reset_noise()
 
-        # base_env used
+        # Initialize action buffers for each environment
+        # Structure: last_agent_actions[env_idx][agent_idx] = [newest, ..., oldest]
         last_agent_actions = []
         for env_idx in range(config.n_rollout_threads):
-            zero_agent_actions = [np.zeros(env.action_space[i].shape[0]) for i in range(maddpg.nagents)]
-            print(f"\n[DEBUG] zero_agent_actions: {[a.shape for a in zero_agent_actions]}")
+            env_agent_buffers = []
+            for agent_idx in range(maddpg.nagents):
+                # Initialize with zeros, size = delay_buffer_size
+                zero_actions = [np.zeros(env.action_space[agent_idx].shape[0]) 
+                               for _ in range(delay_buffer_size)]
+                env_agent_buffers.append(zero_actions)
+            last_agent_actions.append(env_agent_buffers)
         
-            last_agent_actions.append([zero_agent_actions.copy() for _ in range(delay_step)])
-            print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
-        # Append delayed actions to observations for ALL environments
+        print(f"[DEBUG] Action buffer initialized with size {delay_buffer_size} for each agent")
+        
+        # Append action history to observations for ALL environments
         for env_idx in range(config.n_rollout_threads):
             for a_i in range(len(obs[env_idx])):
                 agent_obs = obs[env_idx][a_i]
-                for delay_idx in range(delay_step):
-                    agent_obs = np.append(agent_obs, last_agent_actions[env_idx][delay_idx][a_i])
-                obs[env_idx][a_i] = agent_obs
+                # Append all actions in buffer (from newest to oldest)
+                for action_idx in range(delay_buffer_size):
+                    agent_obs = np.append(agent_obs, last_agent_actions[env_idx][a_i][action_idx])
+                obs[env_idx, a_i] = agent_obs
         
-        print(f"[DEBUG] After appending delays:")
-        for env_idx in range(min(2, config.n_rollout_threads)):  # Print first 2 envs
+        print(f"[DEBUG] After appending action history:")
+        for env_idx in range(min(2, config.n_rollout_threads)):
             print(f"[DEBUG]   Env {env_idx}: agent shapes = {[obs[env_idx][a].shape for a in range(len(obs[env_idx]))]}")
         
-        print("\n[DEBUG] Final obs shapes after appending:")
-        for i, o in enumerate(obs[0]):
-            print(f"[DEBUG] obs[0][{i}] final shape: {o.shape}")
         for et_i in range(config.episode_length):
+            # Get observations for all agents
             torch_obs = [Variable(torch.Tensor(np.vstack(obs[:, i])),
                                   requires_grad=False)
                          for i in range(maddpg.nagents)]
-            print(f"[DEBUG] Calling maddpg.step...")
+            
+            # Get actions from policies
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
-            print(f"[DEBUG] maddpg.step completed")
             agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
+            
+            # Prepare actions for each environment
             actions = []
             for env_idx in range(config.n_rollout_threads):
-                if delay_step == 0:
-                    env_actions = [agent_actions[a_i][env_idx] for a_i in range(maddpg.nagents)]
-                else:
-                    # Get current actions for this environment
-                    agent_actions_tmp = [agent_actions[a_i][env_idx] for a_i in range(maddpg.nagents)]
-                    # Use oldest delayed action
-                    env_actions = last_agent_actions[env_idx][0]
-                    # Update delay buffer
-                    last_agent_actions[env_idx] = last_agent_actions[env_idx][1:]
-                    last_agent_actions[env_idx].append(agent_actions_tmp)
+                # Get current actions for this environment
+                current_actions = [agent_actions[a_i][env_idx] for a_i in range(maddpg.nagents)]
+                
+                # Compute virtual effective actions using the delay
+                env_actions = []
+                for agent_idx in range(maddpg.nagents):
+                    virtual_action = compute_virtual_action(
+                        last_agent_actions[env_idx][agent_idx], 
+                        config.delay_step
+                    )
+                    env_actions.append(virtual_action)
+                
+                # Update action buffers: shift and add new action
+                for agent_idx in range(maddpg.nagents):
+                    # Remove oldest action
+                    last_agent_actions[env_idx][agent_idx].pop()
+                    # Add newest action at the beginning
+                    last_agent_actions[env_idx][agent_idx].insert(0, current_actions[agent_idx])
                 
                 actions.append(env_actions)
+            
+            # Step environment with virtual effective actions
             next_obs, rewards, dones, infos = env.step(actions)
+            
+            # Append action history to next observations
             for env_idx in range(config.n_rollout_threads):
                 for a_i in range(len(next_obs[env_idx])):
                     agent_obs = next_obs[env_idx][a_i]
-                    for delay_idx in range(delay_step):
+                    # Append all actions in buffer
+                    for action_idx in range(delay_buffer_size):
                         # Apply scaling if needed (keeping your original logic)
                         if a_i == 2:
-                            agent_obs = np.append(agent_obs, 4*last_agent_actions[env_idx][delay_idx][a_i])
+                            agent_obs = np.append(agent_obs, 4*last_agent_actions[env_idx][a_i][action_idx])
                         else:
-                            agent_obs = np.append(agent_obs, 3*last_agent_actions[env_idx][delay_idx][a_i])
-                    next_obs[env_idx][a_i] = agent_obs
-            # Scale agent actions for replay buffer 
+                            agent_obs = np.append(agent_obs, 3*last_agent_actions[env_idx][a_i][action_idx])
+                    next_obs[env_idx, a_i] = agent_obs
+            
+            # Scale agent actions for replay buffer (if needed)
             scaled_agent_actions = []
             for a_i in range(maddpg.nagents):
                 if a_i == 2:
                     scaled_agent_actions.append(agent_actions[a_i] * 4)
                 else:
                     scaled_agent_actions.append(agent_actions[a_i] * 3)
-            #agent_actions[0] = agent_actions[0]*3
-            #agent_actions[1] = agent_actions[1]*3
-            #agent_actions.append(agent_actions[1]*4)
-            replay_buffer.push(obs, agent_actions, rewards, next_obs, dones)
-    
-
+            
+            replay_buffer.push(obs, scaled_agent_actions, rewards, next_obs, dones)
             
             obs = next_obs
             t += config.n_rollout_threads
+            
             if (len(replay_buffer) >= config.batch_size and
                 (t % config.steps_per_update) < config.n_rollout_threads):
                 if USE_CUDA:
@@ -201,7 +235,7 @@ def run(config):
                 else:
                     maddpg.prep_training(device='cpu')
                 for u_i in range(config.n_rollout_threads):
-                    for a_i in range(maddpg.nagents - 1): #do not update the runner
+                    for a_i in range(maddpg.nagents - 1):  # do not update the runner
                         sample = replay_buffer.sample(config.batch_size,
                                                       to_gpu=USE_CUDA)
                         maddpg.update(sample, a_i, logger=logger)
@@ -210,6 +244,7 @@ def run(config):
                     maddpg.prep_rollouts(device='gpu')
                 else:
                     maddpg.prep_rollouts(device='cpu')
+        
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
         for a_i, a_ep_rew in enumerate(ep_rews):
@@ -233,7 +268,6 @@ if __name__ == '__main__':
     parser.add_argument("model_name",
                         help="Name of directory to store " +
                              "model/training contents")
-#     parser.add_argument("run_num", default=1, type=int)
     parser.add_argument("--seed",
                         default=1, type=int,
                         help="Random seed")
@@ -261,6 +295,9 @@ if __name__ == '__main__':
                         choices=['MADDPG', 'DDPG'])
     parser.add_argument("--discrete_action",
                         action='store_true')
+    parser.add_argument("--delay_step", 
+                        default=3.0, type=float,
+                        help="Delay in time steps (can be non-integral, e.g., 2.5)")
 
     config = parser.parse_args()
 
