@@ -107,25 +107,12 @@ def run(config):
           #  print(f"  Agent {agent}: Observation space: {obs_space}, shape: {getattr(obs_space, 'shape', None)}, type: {type(obs_space)}")
 
         obs = env.reset()
-
-        # FIX: Numpy is converting to object dtype when creating the array
-        # We need to reconstruct it properly while maintaining array structure
-        if len(obs) > 0 and len(obs[0]) > 0:
-            if obs[0][0].dtype == object:
-                print("[FIX] Detected object dtype, converting to float32...")
-                obs_fixed = np.empty(len(obs), dtype=object)
-                for env_idx in range(len(obs)):
-                    # Keep as numpy array, not list
-                    obs_fixed[env_idx] = np.array([np.asarray(obs[env_idx][a_i], dtype=np.float32) 
-                                                   for a_i in range(len(obs[env_idx]))], dtype=object)
-                obs = obs_fixed
-                print("[FIX] Conversion complete")
-        
         print(f"[DEBUG] After reset, obs type: {type(obs)}, len: {len(obs) if hasattr(obs, '__len__') else 'N/A'}")
         print(f"[DEBUG] obs[0] type: {type(obs[0])}, len: {len(obs[0])}")
-        print(f"[DEBUG] obs shape: {obs.shape}")  # Add this to check structure
         for i, o in enumerate(obs[0]):
             print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
+        
+        
         if USE_CUDA:
             maddpg.prep_rollouts(device='gpu')
         else:
