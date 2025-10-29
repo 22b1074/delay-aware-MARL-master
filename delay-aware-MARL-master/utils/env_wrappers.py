@@ -71,17 +71,15 @@ class SubprocVecEnv(VecEnv):
         self.waiting = False
         obs_raw, rews, dones, infos = zip(*results)
         
-        # FIXED: Don't use dtype=object on outer array
-        obs_list = []
-        for env_obs in obs_raw:
-            # Each agent_obs is already a float32 numpy array
-            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            obs_list.append(agent_list)
+        # Convert to 2D structure: [n_envs, n_agents] with each element being float32 array
+        n_envs = len(obs_raw)
+        n_agents = len(obs_raw[0])
         
-        # Create array without forcing object dtype - let numpy decide
-        obs = np.empty(len(obs_list), dtype=object)
-        for i, agent_list in enumerate(obs_list):
-            obs[i] = agent_list
+        # Create proper 2D object array structure
+        obs = np.empty((n_envs, n_agents), dtype=object)
+        for env_idx in range(n_envs):
+            for agent_idx in range(n_agents):
+                obs[env_idx, agent_idx] = np.asarray(obs_raw[env_idx][agent_idx], dtype=np.float32)
         
         return obs, np.stack(rews), np.stack(dones), infos
 
@@ -90,16 +88,15 @@ class SubprocVecEnv(VecEnv):
             remote.send(('reset', None))
         results = [remote.recv() for remote in self.remotes]
         
-        # FIXED: Don't use dtype=object on outer array
-        obs_list = []
-        for env_obs in results:
-            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            obs_list.append(agent_list)
+        # Convert to 2D structure: [n_envs, n_agents] with each element being float32 array
+        n_envs = len(results)
+        n_agents = len(results[0])
         
-        # Create array without forcing object dtype - let numpy decide
-        obs = np.empty(len(obs_list), dtype=object)
-        for i, agent_list in enumerate(obs_list):
-            obs[i] = agent_list
+        # Create proper 2D object array structure
+        obs = np.empty((n_envs, n_agents), dtype=object)
+        for env_idx in range(n_envs):
+            for agent_idx in range(n_agents):
+                obs[env_idx, agent_idx] = np.asarray(results[env_idx][agent_idx], dtype=np.float32)
         
         return obs
 
@@ -108,16 +105,15 @@ class SubprocVecEnv(VecEnv):
             remote.send(('reset_task', None))
         results = [remote.recv() for remote in self.remotes]
         
-        # FIXED: Don't use dtype=object on outer array
-        obs_list = []
-        for env_obs in results:
-            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            obs_list.append(agent_list)
+        # Convert to 2D structure: [n_envs, n_agents] with each element being float32 array
+        n_envs = len(results)
+        n_agents = len(results[0])
         
-        # Create array without forcing object dtype - let numpy decide
-        obs = np.empty(len(obs_list), dtype=object)
-        for i, agent_list in enumerate(obs_list):
-            obs[i] = agent_list
+        # Create proper 2D object array structure
+        obs = np.empty((n_envs, n_agents), dtype=object)
+        for env_idx in range(n_envs):
+            for agent_idx in range(n_agents):
+                obs[env_idx, agent_idx] = np.asarray(results[env_idx][agent_idx], dtype=np.float32)
         
         return obs
 
@@ -156,16 +152,15 @@ class DummyVecEnv(VecEnv):
         # Unpack results
         obs_raw, rews, dones, infos = zip(*results)
         
-        # FIXED: Don't use dtype=object on outer array
-        obs_list = []
-        for env_obs in obs_raw:
-            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            obs_list.append(agent_list)
+        # Convert to 2D structure: [n_envs, n_agents] with each element being float32 array
+        n_envs = len(obs_raw)
+        n_agents = len(obs_raw[0])
         
-        # Create array without forcing object dtype - let numpy decide
-        obs = np.empty(len(obs_list), dtype=object)
-        for i, agent_list in enumerate(obs_list):
-            obs[i] = agent_list
+        # Create proper 2D object array structure
+        obs = np.empty((n_envs, n_agents), dtype=object)
+        for env_idx in range(n_envs):
+            for agent_idx in range(n_agents):
+                obs[env_idx, agent_idx] = np.asarray(obs_raw[env_idx][agent_idx], dtype=np.float32)
         
         rews = np.array(rews)
         dones = np.array(dones)
@@ -174,9 +169,8 @@ class DummyVecEnv(VecEnv):
         for (i, done) in enumerate(dones):
             if all(done): 
                 obs_raw_reset = self.envs[i].reset()
-                reset_agent_list = [np.asarray(agent_obs, dtype=np.float32) 
-                                    for agent_obs in obs_raw_reset]
-                obs[i] = reset_agent_list
+                for agent_idx in range(n_agents):
+                    obs[i, agent_idx] = np.asarray(obs_raw_reset[agent_idx], dtype=np.float32)
                 self.ts[i] = 0
         self.actions = None
         return obs, rews, dones, infos
@@ -184,16 +178,15 @@ class DummyVecEnv(VecEnv):
     def reset(self):
         results = [env.reset() for env in self.envs]
         
-        # FIXED: Don't use dtype=object on outer array
-        obs_list = []
-        for env_obs in results:
-            agent_list = [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
-            obs_list.append(agent_list)
+        # Convert to 2D structure: [n_envs, n_agents] with each element being float32 array
+        n_envs = len(results)
+        n_agents = len(results[0])
         
-        # Create array without forcing object dtype - let numpy decide
-        obs = np.empty(len(obs_list), dtype=object)
-        for i, agent_list in enumerate(obs_list):
-            obs[i] = agent_list
+        # Create proper 2D object array structure
+        obs = np.empty((n_envs, n_agents), dtype=object)
+        for env_idx in range(n_envs):
+            for agent_idx in range(n_agents):
+                obs[env_idx, agent_idx] = np.asarray(results[env_idx][agent_idx], dtype=np.float32)
         
         return obs
 
