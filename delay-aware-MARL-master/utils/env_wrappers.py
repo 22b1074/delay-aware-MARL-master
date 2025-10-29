@@ -118,7 +118,12 @@ class DummyVecEnv(VecEnv):
         
         # Unpack results without forcing homogeneous arrays
         results_unpacked = list(zip(*results))
-        obs = np.array(results_unpacked[0], dtype=object)  # Object array for different shapes
+        #obs = np.array(results_unpacked[0], dtype=object)  # Object array for different shapes
+        obs_raw = results_unpacked[0]
+        obs = np.array([
+            [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            for env_obs in obs_raw
+        ], dtype=object)
         rews = np.array(results_unpacked[1])
         dones = np.array(results_unpacked[2])
         infos = results_unpacked[3]
@@ -126,7 +131,10 @@ class DummyVecEnv(VecEnv):
         self.ts += 1
         for (i, done) in enumerate(dones):
             if all(done): 
-                obs[i] = self.envs[i].reset()
+                #obs[i] = self.envs[i].reset()
+                obs_raw_reset = self.envs[i].reset()
+                obs[i] = np.array([np.asarray(agent_obs, dtype=np.float32) 
+                                   for agent_obs in obs_raw_reset], dtype=object)
                 self.ts[i] = 0
         self.actions = None
         return obs, rews, dones, infos  # Remove the extra np.array wrapping
@@ -134,7 +142,12 @@ class DummyVecEnv(VecEnv):
     def reset(self):
         results = [env.reset() for env in self.envs]
         # Convert to object array (allows different shapes)
-        return np.array(results, dtype=object)     
+        obs = np.array([
+            [np.asarray(agent_obs, dtype=np.float32) for agent_obs in env_obs]
+            for env_obs in results
+        ], dtype=object)
+        return obs
+        #return np.array(results, dtype=object)     
 
     def close(self):
         return
