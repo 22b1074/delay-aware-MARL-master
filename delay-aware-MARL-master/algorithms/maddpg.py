@@ -4,6 +4,7 @@ from gymnasium.spaces import Box, Discrete
 from utils.networks import MLPNetwork
 from utils.misc import soft_update, average_gradients, onehot_from_logits, gumbel_softmax
 from utils.agents import DDPGAgent
+import numpy as np
 
 MSELoss = torch.nn.MSELoss()
 
@@ -40,14 +41,10 @@ class MADDPG(object):
         self.tau = tau
         self.lr = lr
         self.discrete_action = discrete_action
-        self.pol_dev = 'gpu'  # device for policies
-        self.critic_dev = 'gpu'  # device for critics
-        self.trgt_pol_dev = 'gpu'  # device for target policies
-        self.trgt_critic_dev = 'gpu'  # device for target critics
-        # self.pol_dev = 'cpu'  # device for policies
-        # self.critic_dev = 'cpu'  # device for critics
-        # self.trgt_pol_dev = 'cpu'  # device for target policies
-        # self.trgt_critic_dev = 'cpu'  # device for target critics
+        self.pol_dev = 'gpu'
+        self.critic_dev = 'gpu'
+        self.trgt_pol_dev = 'gpu'
+        self.trgt_critic_dev = 'gpu'
         self.niter = 0
 
     @property
@@ -70,16 +67,6 @@ class MADDPG(object):
     def reset_noise(self):
         for a in self.agents:
             a.reset_noise()
-    def get_shape(space):
-        from gym.spaces import Discrete, Box, MultiDiscrete
-        if isinstance(space, Discrete):
-            return space.n
-        elif isinstance(space, Box):
-            return space.shape[0]
-        elif isinstance(space, MultiDiscrete):
-            return len(space.high)
-        else:
-            raise NotImplementedError(f"Unknown action space type {type(space)}")
 
     def step(self, observations, explore=False):
         """
@@ -96,29 +83,19 @@ class MADDPG(object):
     def update(self, sample, agent_i, parallel=False, logger=None):
         """
         Update parameters of agent model based on sample from replay buffer
-        Inputs:
-            sample: tuple of (observations, actions, rewards, next
-                    observations, and episode end masks) sampled randomly from
-                    the replay buffer. Each is a list with entries
-                    corresponding to each agent
-            agent_i (int): index of agent to update
-            parallel (bool): If true, will average gradients across threads
-            logger (SummaryWriter from Tensorboard-Pytorch):
-                If passed in, important quantities will be logged
         """
         obs, acs, rews, next_obs, dones = sample
         curr_agent = self.agents[agent_i]
 
         curr_agent.critic_optimizer.zero_grad()
         if self.alg_types[agent_i] == 'MADDPG':
-            if self.discrete_action: # one-hot encode action
+            if self.discrete_action:
                 all_trgt_acs = [onehot_from_logits(pi(nobs)) for pi, nobs in
                                 zip(self.target_policies, next_obs)]
             else:
                 all_trgt_acs = [pi(nobs) for pi, nobs in zip(self.target_policies,
                                                              next_obs)]
             trgt_vf_in = torch.cat((*next_obs, *all_trgt_acs), dim=1)
-#             print(trgt_vf_in.shape[1])
         else:  # DDPG
             if self.discrete_action:
                 trgt_vf_in = torch.cat((next_obs[agent_i],
@@ -130,7 +107,6 @@ class MADDPG(object):
                 trgt_vf_in = torch.cat((next_obs[agent_i],
                                         curr_agent.target_policy(next_obs[agent_i])),
                                        dim=1)
-#         print(trgt_vf_in[0].shape[0])
         target_value = (rews[agent_i].view(-1, 1) + self.gamma *
                         curr_agent.target_critic(trgt_vf_in) *
                         (1 - dones[agent_i].view(-1, 1)))
@@ -150,11 +126,6 @@ class MADDPG(object):
         curr_agent.policy_optimizer.zero_grad()
 
         if self.discrete_action:
-            # Forward pass as if onehot (hard=True) but backprop through a differentiable
-            # Gumbel-Softmax sample. The MADDPG paper uses the Gumbel-Softmax trick to backprop
-            # through discrete categorical samples, but I'm not sure if that is
-            # correct since it removes the assumption of a deterministic policy for
-            # DDPG. Regardless, discrete policies don't seem to learn properly without it.
             curr_pol_out = curr_agent.policy(obs[agent_i])
             curr_pol_vf_in = gumbel_softmax(curr_pol_out, hard=True)
         else:
@@ -240,8 +211,6 @@ class MADDPG(object):
             fn = lambda x: x.cuda()
         else:
             fn = lambda x: x.cpu()
-        # only need main policy for rollouts
-#         if not self.pol_dev == device:
         for a in self.agents:
             a.policy = fn(a.policy)
         self.pol_dev = device
@@ -250,7 +219,7 @@ class MADDPG(object):
         """
         Save trained parameters of all agents into one file
         """
-        self.prep_training(device='cpu')  # move parameters to CPU before saving
+        self.prep_training(device='cpu')
         save_dict = {'init_dict': self.init_dict,
                      'agent_params': [a.get_params() for a in self.agents]}
         torch.save(save_dict, filename)
@@ -296,43 +265,63 @@ class MADDPG(object):
     
     @classmethod    
     def init_from_env_with_delay(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0):
+                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0.0):
         """
-        Instantiate instance of this class from multi-agent environment
+        Instantiate instance of this class from multi-agent environment with support for
+        non-integral delays.
+        
+        Args:
+            delay_step (float): Delay in time steps (can be non-integral, e.g., 2.5)
         """
         agent_init_params = []
         alg_types = [adversary_alg if atype == 'adversary' else agent_alg for
                      atype in env.agent_types]
-#         print(env.action_space)
+        
+        # Calculate buffer size needed: ceiling of delay + 1
+        delay_buffer_size = int(np.ceil(delay_step)) + 1
+        
+        print(f"[MADDPG DEBUG] Delay step: {delay_step}")
+        print(f"[MADDPG DEBUG] Delay buffer size: {delay_buffer_size}")
+        
         for acsp, obsp, algtype in zip(env.action_space, env.observation_space,
                                        alg_types):
-
-#             print(num_in_pol)
             if isinstance(acsp, Box):
                 discrete_action = False
                 get_shape = lambda x: x.shape[0]
             else:  # Discrete
                 discrete_action = True
                 get_shape = lambda x: x.n
+            
             num_out_pol = get_shape(acsp)
-            num_in_pol = obsp.shape[0] + delay_step*num_out_pol
-#             print(num_out_pol, num_in_pol)
+            
+            # Policy input: observation + action_history
+            # For non-integral delays, we store ceil(delay)+1 past actions
+            num_in_pol = obsp.shape[0] + delay_buffer_size * num_out_pol
+            
+            print(f"[MADDPG DEBUG] Agent: obs_dim={obsp.shape[0]}, action_dim={num_out_pol}")
+            print(f"[MADDPG DEBUG]   Policy input dim: {num_in_pol} = {obsp.shape[0]} + {delay_buffer_size}*{num_out_pol}")
+            
             if algtype == "MADDPG":
                 num_in_critic = 0
+                # Add all observations
                 for oobsp in env.observation_space:
                     num_in_critic += oobsp.shape[0]
-                    
+                
+                # Add all actions + their history
                 for oacsp in env.action_space:
-#                     print(oacsp)
-                    num_in_critic += get_shape(oacsp)
-                    num_in_critic += delay_step*get_shape(oacsp) #agents have same delay
-            else:
-                num_in_critic = obsp.shape[0] + get_shape(acsp) + delay_step*get_shape(acsp)
-#                 num_in_critic = obsp.shape[0] + get_shape(acsp)
+                    action_dim = get_shape(oacsp)
+                    num_in_critic += action_dim  # Current action
+                    num_in_critic += delay_buffer_size * action_dim  # Action history
+                
+                print(f"[MADDPG DEBUG]   Critic input dim (MADDPG): {num_in_critic}")
+            else:  # DDPG
+                num_in_critic = obsp.shape[0] + get_shape(acsp) * (1 + delay_buffer_size)
+                print(f"[MADDPG DEBUG]   Critic input dim (DDPG): {num_in_critic}")
+            
             agent_init_params.append({'num_in_pol': num_in_pol,
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
-#         print(agent_init_params)
+        
         init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
                      'hidden_dim': hidden_dim,
                      'alg_types': alg_types,
@@ -341,142 +330,56 @@ class MADDPG(object):
         instance = cls(**init_dict)
         instance.init_dict = init_dict
         return instance
-#     @classmethod    
-#     def init_from_env_with_runner(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-#                       gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0, file_name=''):
-#         """
-#         Instantiate instance of this class from multi-agent environment
-#         """
-#         agent_init_params = []
-#         alg_types = [adversary_alg if atype == 'adversary' else agent_alg for
-#                      atype in env.agent_types]
-#         for acsp, obsp, algtype in zip(env.action_space, env.observation_space,
-#                                        alg_types):
-#             if algtype == 'MADDPG':
-#                 num_in_pol = obsp.shape[0] + delay_step*acsp.shape[0]
-#             else:
-#                 num_in_pol = obsp.shape[0]
-# #             print(num_in_pol)
-#             if isinstance(acsp, Box):
-#                 discrete_action = False
-#                 get_shape = lambda x: x.shape[0]
-#             else:  # Discrete
-#                 discrete_action = True
-#                 get_shape = lambda x: x.n
-#             num_out_pol = get_shape(acsp)
-#             if algtype == "MADDPG":
-#                 num_in_critic = 0
-#                 for oobsp in env.observation_space[:2]:
-#                     num_in_critic += oobsp.shape[0]
-                    
-#                 for oacsp in env.action_space[:2]:
-#                     num_in_critic += get_shape(oacsp)
-#                     num_in_critic += delay_step*get_shape(oacsp) #agents have same delay
-#             else:
-#                 num_in_critic = obsp.shape[0] + get_shape(acsp)
-#             agent_init_params.append({'num_in_pol': num_in_pol,
-#                                       'num_out_pol': num_out_pol,
-#                                       'num_in_critic': num_in_critic})
-# #         print(agent_init_params)
-#         init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
-#                      'hidden_dim': hidden_dim,
-#                      'alg_types': alg_types,
-#                      'agent_init_params': agent_init_params,
-#                      'discrete_action': discrete_action}
-#         instance = cls(**init_dict)
-#         instance.init_dict = init_dict
-#         save_dict = torch.load(file_name)
-#         instance.agents[2].load_policy_params(save_dict['agent_params'][2])
-#         return instance
-#     @classmethod    
-#     def init_from_env_with_runner(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-#                       gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0, file_name=''):
-#         """
-#         Instantiate instance of this class from multi-agent environment
-#         """
-#         agent_init_params = []
-#         alg_types = [adversary_alg if atype == 'adversary' else agent_alg for
-#                      atype in env.agent_types]
-#         for acsp, obsp, algtype in zip(env.action_space, env.observation_space,
-#                                        alg_types):
-#             if algtype == 'MADDPG':
-#                 num_in_pol = obsp.shape[0] + delay_step*acsp.shape[0]
-#             else:
-#                 num_in_pol = obsp.shape[0]
-# #             print(num_in_pol)
-#             if isinstance(acsp, Box):
-#                 discrete_action = False
-#                 get_shape = lambda x: x.shape[0]
-#             else:  # Discrete
-#                 discrete_action = True
-#                 get_shape = lambda x: x.n
-#             num_out_pol = get_shape(acsp)
-#             if algtype == "MADDPG":
-#                 num_in_critic = 0
-#                 for oobsp in env.observation_space:
-#                     num_in_critic += oobsp.shape[0]
-                    
-#                 for oacsp in env.action_space:
-#                     num_in_critic += get_shape(oacsp)
-#                     num_in_critic += delay_step*get_shape(oacsp) #agents have same delay
-#                 num_in_critic -= 2
-#             else:
-#                 num_in_critic = obsp.shape[0] + get_shape(acsp)
-#             agent_init_params.append({'num_in_pol': num_in_pol,
-#                                       'num_out_pol': num_out_pol,
-#                                       'num_in_critic': num_in_critic})
-# #         print(agent_init_params)
-#         init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
-#                      'hidden_dim': hidden_dim,
-#                      'alg_types': alg_types,
-#                      'agent_init_params': agent_init_params,
-#                      'discrete_action': discrete_action}
-#         instance = cls(**init_dict)
-#         instance.init_dict = init_dict
-#         save_dict = torch.load(file_name)
-#         instance.agents[2].load_policy_params(save_dict['agent_params'][2])
-#         return instance
+    
     @classmethod    
     def init_from_env_with_runner(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0, file_name=''):
+                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0.0, file_name=''):
         """
-        Instantiate instance of this class from multi-agent environment
+        Instantiate with a pre-trained runner agent (agent 2) for non-integral delays.
         """
         agent_init_params = []
         alg_types = [adversary_alg if atype == 'adversary' else agent_alg for
                      atype in env.agent_types]
+        
+        delay_buffer_size = int(np.ceil(delay_step)) + 1
+        
         for acsp, obsp, algtype, atype in zip(env.action_space, env.observation_space,
                                        alg_types, env.agent_types):
             if atype == 'adversary':
-                num_in_pol = obsp.shape[0] + delay_step*acsp.shape[0]
+                num_in_pol = obsp.shape[0] + delay_buffer_size * acsp.shape[0]
             else:
                 num_in_pol = obsp.shape[0]
-#             print(num_in_pol)
+            
             if isinstance(acsp, Box):
                 discrete_action = False
                 get_shape = lambda x: x.shape[0]
-            else:  # Discrete
+            else:
                 discrete_action = True
                 get_shape = lambda x: x.n
+            
             num_out_pol = get_shape(acsp)
+            
             if algtype == "MADDPG":
                 num_in_critic = 0
                 for oobsp in env.observation_space:
                     num_in_critic += oobsp.shape[0]
-                    
+                
                 for oacsp in env.action_space:
                     num_in_critic += get_shape(oacsp)
-                    num_in_critic += delay_step*get_shape(oacsp) #agents have same delay
-                num_in_critic -= 2*delay_step
+                    num_in_critic += delay_buffer_size * get_shape(oacsp)
+                
+                # Adjust for runner not having delay awareness
+                num_in_critic -= 2 * delay_buffer_size
             else:
                 if atype == 'adversary':
-                    num_in_critic = obsp.shape[0] + get_shape(acsp)*(1+delay_step)
+                    num_in_critic = obsp.shape[0] + get_shape(acsp) * (1 + delay_buffer_size)
                 else:
                     num_in_critic = obsp.shape[0] + get_shape(acsp)
+            
             agent_init_params.append({'num_in_pol': num_in_pol,
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
-#         print(agent_init_params)
+        
         init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
                      'hidden_dim': hidden_dim,
                      'alg_types': alg_types,
@@ -492,7 +395,7 @@ class MADDPG(object):
     def init_from_env_with_runner_delay_unaware(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
                       gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, file_name=''):
         """
-        Instantiate instance of this class from multi-agent environment
+        Instantiate with delay-unaware runner (no action history in observations).
         """
         agent_init_params = []
         alg_types = [adversary_alg if atype == 'adversary' else agent_alg for
@@ -500,11 +403,11 @@ class MADDPG(object):
         for acsp, obsp, algtype, atype in zip(env.action_space, env.observation_space,
                                        alg_types, env.agent_types):
             num_in_pol = obsp.shape[0]
-#             print(num_in_pol)
+            
             if isinstance(acsp, Box):
                 discrete_action = False
                 get_shape = lambda x: x.shape[0]
-            else:  # Discrete
+            else:
                 discrete_action = True
                 get_shape = lambda x: x.n
             num_out_pol = get_shape(acsp)
@@ -520,7 +423,6 @@ class MADDPG(object):
             agent_init_params.append({'num_in_pol': num_in_pol,
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
-#         print(agent_init_params)
         init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
                      'hidden_dim': hidden_dim,
                      'alg_types': alg_types,
@@ -531,6 +433,7 @@ class MADDPG(object):
         save_dict = torch.load(file_name)
         instance.agents[2].load_policy_params(save_dict['agent_params'][2])
         return instance
+    
     @classmethod
     def init_from_save(cls, filename):
         """
@@ -551,6 +454,5 @@ class MADDPG(object):
         save_dict = torch.load(filename)
         instance = cls(**save_dict['init_dict'])
         instance.init_dict = save_dict['init_dict']
-#         for a, params in zip(instance.agents[2], save_dict['agent_params']):
         instance.agents[2].load_params(save_dict['agent_params'][2])
         return instance
