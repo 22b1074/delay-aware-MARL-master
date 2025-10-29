@@ -3,6 +3,8 @@ import numpy as np
 from pettingzoo.mpe.simple_speaker_listener_v4 import parallel_env as ssl_env
 from pettingzoo.mpe.simple_spread_v3 import parallel_env as ss_env
 from pettingzoo.mpe.simple_reference_v3 import parallel_env as sr_env
+from pettingzoo.mpe.simple_tag_v3 import parallel_env as st_env
+
 class MultiAgentEnvAdapter:
     """
     Adapter to convert PettingZoo parallel env (dict obs/action) to old MPE style list interface
@@ -57,20 +59,22 @@ class MultiAgentEnvAdapter:
         return spaces
 
 
-def make_env(scenario_name, discrete_action=False, render_mode=None):
+def make_env(scenario_name, discrete_action=False, render_mode=None, **env_kwargs):
     scenario_dict = {
         'simple_speaker_listener': ssl_env,
         'simple_spread': ss_env,
         'simple_reference': sr_env,
+        'simple_tag': st_env,
     }
 
     if scenario_name not in scenario_dict:
         raise ValueError(f"Scenario {scenario_name} not found in MPE2 environments")
-
-    env = scenario_dict[scenario_name](
-        max_cycles=25,
-        continuous_actions=not discrete_action,
-        render_mode=render_mode
-    )
+    env_params = {
+        'max_cycles': env_kwargs.pop('max_cycles', 25),
+        'continuous_actions': not discrete_action,
+        'render_mode': render_mode
+    }
+    env_params.update(env_kwargs)
+    env = scenario_dict[scenario_name](**env_params)
     env = MultiAgentEnvAdapter(env)
     return env
