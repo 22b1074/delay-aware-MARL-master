@@ -1,3 +1,4 @@
+
 import argparse
 import torch
 import time
@@ -130,15 +131,13 @@ def run(config):
             last_agent_actions.append([zero_agent_actions.copy() for _ in range(delay_step)])
             print(f"[DEBUG] last_agent_actions length: {len(last_agent_actions)}")
         # Append delayed actions to observations for ALL environments
-        obs = obs.tolist()
         for env_idx in range(config.n_rollout_threads):
             for a_i in range(len(obs[env_idx])):
                 agent_obs = obs[env_idx][a_i]
                 for delay_idx in range(delay_step):
                     agent_obs = np.append(agent_obs, last_agent_actions[env_idx][delay_idx][a_i])
                 obs[env_idx][a_i] = agent_obs
-        # Convert back to object array
-        obs = np.array(obs, dtype=object)
+        
         print(f"[DEBUG] After appending delays:")
         for env_idx in range(min(2, config.n_rollout_threads)):  # Print first 2 envs
             print(f"[DEBUG]   Env {env_idx}: agent shapes = {[obs[env_idx][a].shape for a in range(len(obs[env_idx]))]}")
@@ -169,20 +168,16 @@ def run(config):
                 
                 actions.append(env_actions)
             next_obs, rewards, dones, infos = env.step(actions)
-            # Convert to list for modification
-            next_obs = next_obs.tolist()
             for env_idx in range(config.n_rollout_threads):
                 for a_i in range(len(next_obs[env_idx])):
                     agent_obs = next_obs[env_idx][a_i]
                     for delay_idx in range(delay_step):
-                        # Apply scaling if needed
+                        # Apply scaling if needed (keeping your original logic)
                         if a_i == 2:
                             agent_obs = np.append(agent_obs, 4*last_agent_actions[env_idx][delay_idx][a_i])
                         else:
                             agent_obs = np.append(agent_obs, 3*last_agent_actions[env_idx][delay_idx][a_i])
                     next_obs[env_idx][a_i] = agent_obs
-            # Convert back to object array
-            next_obs = np.array(next_obs, dtype=object)
             # Scale agent actions for replay buffer 
             scaled_agent_actions = []
             for a_i in range(maddpg.nagents):
