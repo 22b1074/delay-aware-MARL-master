@@ -36,6 +36,41 @@ def make_parallel_env(env_id, n_rollout_threads, seed, discrete_action):
     else:
         return SubprocVecEnv([get_env_fn(i) for i in range(n_rollout_threads)])
 
+def normalize_action_to_env(action, action_space):
+    """
+    Normalize action from model output range [-1, 1] to environment range [0, 1].
+    
+    Args:
+        action: numpy array, model output in [-1, 1]
+        action_space: gymnasium.spaces.Box with bounds
+    
+    Returns:
+        Normalized action in [action_space.low, action_space.high]
+    """
+    # Clip to [-1, 1] first
+    action = np.clip(action, -1.0, 1.0)
+    # Map from [-1, 1] to [0, 1]
+    action = (action + 1.0) / 2.0
+    # Clip to action space bounds
+    action = np.clip(action, action_space.low, action_space.high)
+    return action
+
+def denormalize_action_for_buffer(action, action_space):
+    """
+    Convert action from environment range [0, 1] back to model training range [-1, 1].
+    This is used when storing actions in replay buffer.
+    
+    Args:
+        action: numpy array in [0, 1]
+        action_space: gymnasium.spaces.Box
+    
+    Returns:
+        Action in [-1, 1] range for training
+    """
+    # Map from [0, 1] to [-1, 1]
+    action = action * 2.0 - 1.0
+    return action
+
 def compute_virtual_action(action_buffer, delay_float):
     """
     Compute virtual effective action for non-integral delays.
@@ -55,8 +90,6 @@ def compute_virtual_action(action_buffer, delay_float):
         return action_buffer[I]
     else:
         # Non-integral delay: interpolate between two actions
-        # action_buffer[I] is the action I steps ago
-        # action_buffer[I+1] is the action I+1 steps ago
         return (1 - f) * action_buffer[I] + f * action_buffer[I + 1]
 
 def run(config):
@@ -85,6 +118,7 @@ def run(config):
     
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     print(f"[DEBUG] Delay step: {config.delay_step} (I={int(np.floor(config.delay_step))}, f={config.delay_step - int(np.floor(config.delay_step))})")
+    print(f"[DEBUG] Action normalization: ENABLED (model [-1,1] -> env [0,1])")
     
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
     
@@ -125,10 +159,6 @@ def run(config):
         
         obs = env.reset()
         
-        print(f"[DEBUG] After reset, obs shape: {obs.shape}")
-        for i, o in enumerate(obs[0]):
-            print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
-        
         if USE_CUDA:
             maddpg.prep_rollouts(device='gpu')
         else:
@@ -139,13 +169,13 @@ def run(config):
         maddpg.reset_noise()
 
         # Initialize action buffers for each environment
-        # Structure: last_agent_actions[env_idx][agent_idx] = [newest, ..., oldest]
+        # Store actions in NORMALIZED [0, 1] range (as sent to environment)
         last_agent_actions = []
         for env_idx in range(config.n_rollout_threads):
             env_agent_buffers = []
             for agent_idx in range(maddpg.nagents):
-                # Initialize with zeros, size = delay_buffer_size
-                zero_actions = [np.zeros(env.action_space[agent_idx].shape[0]) 
+                # Initialize with 0.5 (middle of [0, 1] range, equivalent to 0 in [-1, 1])
+                zero_actions = [np.ones(env.action_space[agent_idx].shape[0]) * 0.5 
                                for _ in range(delay_buffer_size)]
                 env_agent_buffers.append(zero_actions)
             last_agent_actions.append(env_agent_buffers)
@@ -153,17 +183,19 @@ def run(config):
         print(f"[DEBUG] Action buffer initialized with size {delay_buffer_size} for each agent")
         
         # Append action history to observations for ALL environments
+        # Actions stored in buffer are in [0, 1], need to convert to [-1, 1] for model
         for env_idx in range(config.n_rollout_threads):
             for a_i in range(len(obs[env_idx])):
                 agent_obs = obs[env_idx][a_i]
                 # Append all actions in buffer (from newest to oldest)
+                # Convert from [0, 1] to [-1, 1] for model input
                 for action_idx in range(delay_buffer_size):
-                    agent_obs = np.append(agent_obs, last_agent_actions[env_idx][a_i][action_idx])
+                    normalized_action = denormalize_action_for_buffer(
+                        last_agent_actions[env_idx][a_i][action_idx],
+                        env.action_space[a_i]
+                    )
+                    agent_obs = np.append(agent_obs, normalized_action)
                 obs[env_idx, a_i] = agent_obs
-        
-        print(f"[DEBUG] After appending action history:")
-        for env_idx in range(min(2, config.n_rollout_threads)):
-            print(f"[DEBUG]   Env {env_idx}: agent shapes = {[obs[env_idx][a].shape for a in range(len(obs[env_idx]))]}")
         
         for et_i in range(config.episode_length):
             # Get observations for all agents
@@ -171,15 +203,26 @@ def run(config):
                                   requires_grad=False)
                          for i in range(maddpg.nagents)]
             
-            # Get actions from policies
+            # Get actions from policies (output in [-1, 1] range)
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
-            agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
+            agent_actions_raw = [ac.data.numpy() for ac in torch_agent_actions]
+            
+            # Normalize actions to environment range [0, 1]
+            agent_actions_normalized = []
+            for agent_idx in range(maddpg.nagents):
+                normalized = np.array([
+                    normalize_action_to_env(agent_actions_raw[agent_idx][env_idx], 
+                                           env.action_space[agent_idx])
+                    for env_idx in range(config.n_rollout_threads)
+                ])
+                agent_actions_normalized.append(normalized)
             
             # Prepare actions for each environment
             actions = []
             for env_idx in range(config.n_rollout_threads):
-                # Get current actions for this environment
-                current_actions = [agent_actions[a_i][env_idx] for a_i in range(maddpg.nagents)]
+                # Get current normalized actions for this environment
+                current_actions = [agent_actions_normalized[a_i][env_idx] 
+                                  for a_i in range(maddpg.nagents)]
                 
                 # Compute virtual effective actions using the delay
                 env_actions = []
@@ -190,40 +233,31 @@ def run(config):
                     )
                     env_actions.append(virtual_action)
                 
-                # Update action buffers: shift and add new action
+                # Update action buffers: shift and add new action (in [0, 1] range)
                 for agent_idx in range(maddpg.nagents):
-                    # Remove oldest action
                     last_agent_actions[env_idx][agent_idx].pop()
-                    # Add newest action at the beginning
                     last_agent_actions[env_idx][agent_idx].insert(0, current_actions[agent_idx])
                 
                 actions.append(env_actions)
             
-            # Step environment with virtual effective actions
+            # Step environment with virtual effective actions (already in [0, 1])
             next_obs, rewards, dones, infos = env.step(actions)
             
             # Append action history to next observations
+            # Convert buffer actions from [0, 1] to [-1, 1] for model
             for env_idx in range(config.n_rollout_threads):
                 for a_i in range(len(next_obs[env_idx])):
                     agent_obs = next_obs[env_idx][a_i]
-                    # Append all actions in buffer
                     for action_idx in range(delay_buffer_size):
-                        # Apply scaling if needed (keeping your original logic)
-                        if a_i == 2:
-                            agent_obs = np.append(agent_obs, 4*last_agent_actions[env_idx][a_i][action_idx])
-                        else:
-                            agent_obs = np.append(agent_obs, 3*last_agent_actions[env_idx][a_i][action_idx])
+                        normalized_action = denormalize_action_for_buffer(
+                            last_agent_actions[env_idx][a_i][action_idx],
+                            env.action_space[a_i]
+                        )
+                        agent_obs = np.append(agent_obs, normalized_action)
                     next_obs[env_idx, a_i] = agent_obs
             
-            # Scale agent actions for replay buffer (if needed)
-            scaled_agent_actions = []
-            for a_i in range(maddpg.nagents):
-                if a_i == 2:
-                    scaled_agent_actions.append(agent_actions[a_i] * 4)
-                else:
-                    scaled_agent_actions.append(agent_actions[a_i] * 3)
-            
-            replay_buffer.push(obs, scaled_agent_actions, rewards, next_obs, dones)
+            # Store RAW actions ([-1, 1] range) in replay buffer for training
+            replay_buffer.push(obs, agent_actions_raw, rewards, next_obs, dones)
             
             obs = next_obs
             t += config.n_rollout_threads
