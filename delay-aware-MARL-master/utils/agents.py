@@ -104,22 +104,31 @@ class DDPGAgent(object):
                 action = onehot_from_logits(action)
         else:  # continuous action
             if explore:
-                action += Variable(Tensor(self.exploration.noise()),
-                                   requires_grad=False).to(device)
+                noise = Variable(Tensor(self.exploration.noise()),
+                                requires_grad=False).to(device)
+                action = action + noise
             
             # Clamp to [0, 1] if using sigmoid, or [-1, 1] if using tanh
             if self.use_sigmoid:
-                action = action.clamp(0, 1)
+                # Use epsilon = 1e-6 to stay strictly inside (0, 1)
+                epsilon = 1e-6
+                action = action.clamp(epsilon, 1.0 - epsilon)
             else:
-                action = action.clamp(-1, 1)
-        if isinstance(action, torch.Tensor):
-            action = action.detach().cpu().numpy().astype(np.float32)
+                # For tanh: clamp to (-1 + eps, 1 - eps)
+                epsilon = 1e-6
+                action = action.clamp(-1.0 + epsilon, 1.0 - epsilon)
         
-        #  EXTRA SAFETY: Ensure strictly within bounds
+        # Convert to numpy with FLOAT32 (not float64)
+        if isinstance(action, torch.Tensor):
+            action = action.detach().cpu().numpy().astype(np.float32)  # ← CRITICAL: float32
+        
+        # EXTRA SAFETY: Ensure strictly within bounds and correct dtype
         if self.use_sigmoid:
-            action = np.clip(action, 0.0, 1.0)
+            epsilon = 1e-6
+            action = np.clip(action, epsilon, 1.0 - epsilon).astype(np.float32)
         else:
-            action = np.clip(action, -1.0, 1.0)
+            epsilon = 1e-6
+            action = np.clip(action, -1.0 + epsilon, 1.0 - epsilon).astype(np.float32)
         
         return action
 
