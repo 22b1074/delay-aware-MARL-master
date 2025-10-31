@@ -29,11 +29,12 @@ class MADDPG(object):
             lr (float): Learning rate for policy and critic
             hidden_dim (int): Number of hidden dimensions for networks
             discrete_action (bool): Whether or not to use discrete action space
+            use_sigmoid (bool): Use sigmoid activation for continuous actions ([0,1] range)
         """
         self.nagents = len(alg_types)
         self.alg_types = alg_types
         self.agents = [DDPGAgent(lr=lr, discrete_action=discrete_action,
-                                 hidden_dim=hidden_dim,
+                                 hidden_dim=hidden_dim, use_sigmoid=use_sigmoid,
                                  **params)
                        for params in agent_init_params]
         self.agent_init_params = agent_init_params
@@ -265,7 +266,7 @@ class MADDPG(object):
     
     @classmethod    
     def init_from_env_with_delay(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0.0):
+                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=3.0, use_sigmoid=True):
         """
         Instantiate instance of this class from multi-agent environment with support for
         non-integral delays.
