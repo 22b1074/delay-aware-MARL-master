@@ -111,6 +111,14 @@ class DDPGAgent(object):
                 action = action.clamp(0, 1)
             else:
                 action = action.clamp(-1, 1)
+        if isinstance(action, torch.Tensor):
+            action = action.detach().cpu().numpy().astype(np.float32)
+        
+        #  EXTRA SAFETY: Ensure strictly within bounds
+        if self.use_sigmoid:
+            action = np.clip(action, 0.0, 1.0)
+        else:
+            action = np.clip(action, -1.0, 1.0)
         
         return action
 
