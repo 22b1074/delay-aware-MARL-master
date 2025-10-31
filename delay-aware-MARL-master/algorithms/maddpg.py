@@ -256,11 +256,14 @@ class MADDPG(object):
             agent_init_params.append({'num_in_pol': num_in_pol,
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
-        init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
-                     'hidden_dim': hidden_dim,
-                     'alg_types': alg_types,
-                     'agent_init_params': agent_init_params,
-                     'discrete_action': discrete_action}
+        init_dict = {
+            'gamma': gamma, 'tau': tau, 'lr': lr,
+            'hidden_dim': hidden_dim,
+            'alg_types': alg_types,
+            'agent_init_params': agent_init_params,
+            'discrete_action': discrete_action,
+            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+        }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
         return instance
@@ -324,11 +327,14 @@ class MADDPG(object):
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
         
-        init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
-                     'hidden_dim': hidden_dim,
-                     'alg_types': alg_types,
-                     'agent_init_params': agent_init_params,
-                     'discrete_action': discrete_action}
+        init_dict = {
+            'gamma': gamma, 'tau': tau, 'lr': lr,
+            'hidden_dim': hidden_dim,
+            'alg_types': alg_types,
+            'agent_init_params': agent_init_params,
+            'discrete_action': discrete_action,
+            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+        }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
         return instance
@@ -382,11 +388,14 @@ class MADDPG(object):
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
         
-        init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
-                     'hidden_dim': hidden_dim,
-                     'alg_types': alg_types,
-                     'agent_init_params': agent_init_params,
-                     'discrete_action': discrete_action}
+        init_dict = {
+            'gamma': gamma, 'tau': tau, 'lr': lr,
+            'hidden_dim': hidden_dim,
+            'alg_types': alg_types,
+            'agent_init_params': agent_init_params,
+            'discrete_action': discrete_action,
+            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+        }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
         save_dict = torch.load(file_name)
@@ -425,11 +434,14 @@ class MADDPG(object):
             agent_init_params.append({'num_in_pol': num_in_pol,
                                       'num_out_pol': num_out_pol,
                                       'num_in_critic': num_in_critic})
-        init_dict = {'gamma': gamma, 'tau': tau, 'lr': lr,
-                     'hidden_dim': hidden_dim,
-                     'alg_types': alg_types,
-                     'agent_init_params': agent_init_params,
-                     'discrete_action': discrete_action}
+        init_dict = {
+            'gamma': gamma, 'tau': tau, 'lr': lr,
+            'hidden_dim': hidden_dim,
+            'alg_types': alg_types,
+            'agent_init_params': agent_init_params,
+            'discrete_action': discrete_action,
+            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+        }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
         save_dict = torch.load(file_name)
