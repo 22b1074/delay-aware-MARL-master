@@ -119,16 +119,16 @@ class DDPGAgent(object):
                 action = action.clamp(-1.0 + epsilon, 1.0 - epsilon)
         
         # Convert to numpy with FLOAT32 (not float64)
-        if isinstance(action, torch.Tensor):
-            action = action.detach().cpu().numpy().astype(np.float32)  # ← CRITICAL: float32
+        #if isinstance(action, torch.Tensor):
+         #   action = action.detach().cpu().numpy().astype(np.float32)  # ← CRITICAL: float32
         
         # EXTRA SAFETY: Ensure strictly within bounds and correct dtype
         if self.use_sigmoid:
             epsilon = 1e-6
-            action = np.clip(action, epsilon, 1.0 - epsilon).astype(np.float32)
+            action = action.clamp(-1.0 + epsilon, 1.0 - epsilon)
         else:
             epsilon = 1e-6
-            action = np.clip(action, -1.0 + epsilon, 1.0 - epsilon).astype(np.float32)
+            action = action.clamp(-1.0 + epsilon, 1.0 - epsilon)
         
         return action
 
