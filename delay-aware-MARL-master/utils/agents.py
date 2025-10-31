@@ -1,10 +1,12 @@
 import torch
+from torch import Tensor
+from torch.autograd import Variable
 import torch.nn.functional as F
 from torch.optim import Adam
-from utils.networks import MLPNetwork
-from utils.misc import hard_update, gumbel_softmax, onehot_from_logits
-from utils.noise import OUNoise
-
+from .networks import MLPNetwork
+from .misc import hard_update, gumbel_softmax, onehot_from_logits
+from .noise import OUNoise
+device = 'cuda'
 class DDPGAgent(object):
     """
     Delay-aware wrapper for DDPG with action history observation augmentation
