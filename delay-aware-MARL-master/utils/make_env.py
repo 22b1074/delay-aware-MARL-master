@@ -33,13 +33,13 @@ class MultiAgentEnvAdapter:
         """
         # map list -> dict for PettingZoo env
         for i, act in enumerate(action_n):
-        print(f"[DEBUG] Agent {i} action type: {type(act)}, dtype: {act.dtype if hasattr(act, 'dtype') else 'N/A'}")
-        print(f"[DEBUG] Agent {i} action: {act}, min: {act.min()}, max: {act.max()}")
-        
-        # Verify bounds
-        if hasattr(act, 'min') and hasattr(act, 'max'):
-            if act.min() < 0 or act.max() > 1:
-                print(f"[ERROR] Agent {i} action OUT OF BOUNDS!")
+            print(f"[DEBUG] Agent {i} action type: {type(act)}, dtype: {act.dtype if hasattr(act, 'dtype') else 'N/A'}")
+            print(f"[DEBUG] Agent {i} action: {act}, min: {act.min()}, max: {act.max()}")
+            
+            # Verify bounds
+            if hasattr(act, 'min') and hasattr(act, 'max'):
+                if act.min() < 0 or act.max() > 1:
+                    print(f"[ERROR] Agent {i} action OUT OF BOUNDS!")
         actions = {a: act for a, act in zip(self.agents, action_n)}
         obs_dict, rewards_dict, terminations, truncations, infos_dict = self.env.step(actions)
 
