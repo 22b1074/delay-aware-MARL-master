@@ -209,22 +209,10 @@ def run(config):
                     agent_obs = next_obs[env_idx][a_i]
                     # Append all actions in buffer
                     for action_idx in range(delay_buffer_size):
-                        # Apply scaling if needed (keeping your original logic)
-                        if a_i == 2:
-                            agent_obs = np.append(agent_obs, 4*last_agent_actions[env_idx][a_i][action_idx])
-                        else:
-                            agent_obs = np.append(agent_obs, 3*last_agent_actions[env_idx][a_i][action_idx])
+                        agent_obs = np.append(agent_obs, last_agent_actions[env_idx][a_i][action_idx])
                     next_obs[env_idx, a_i] = agent_obs
             
-            # Scale agent actions for replay buffer (if needed)
-            scaled_agent_actions = []
-            for a_i in range(maddpg.nagents):
-                if a_i == 2:
-                    scaled_agent_actions.append(agent_actions[a_i] * 4)
-                else:
-                    scaled_agent_actions.append(agent_actions[a_i] * 3)
-            
-            replay_buffer.push(obs, scaled_agent_actions, rewards, next_obs, dones)
+            replay_buffer.push(obs, agent_actions, rewards, next_obs, dones)
             
             obs = next_obs
             t += config.n_rollout_threads
