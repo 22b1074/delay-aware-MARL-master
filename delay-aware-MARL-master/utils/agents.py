@@ -1,81 +1,50 @@
+from utils.networks import MLPNetwork
 import torch
 import torch.nn.functional as F
-from torch.optim import Adam
-from utils.networks import MLPNetwork
-from utils.misc import hard_update, gumbel_softmax, onehot_from_logits
-from utils.noise import OUNoise
 
-class DelayAwareDDPG(object):
+class DDPGAgent(object):
     """
-    Delay-aware wrapper for DDPG with action history observation augmentation
+    General class for DDPG agents (policy, target policy, critic, target critic)
     """
     def __init__(self, num_in_pol, num_out_pol, num_in_critic, hidden_dim=64,
-                 lr=0.01, discrete_action=True, delay_step=3.0, use_sigmoid=True):
+                 lr=0.01, discrete_action=True, use_sigmoid=True):  # Add use_sigmoid param
         """
         Inputs:
-            num_in_pol (int): number of dimensions for policy input (obs + action_history)
+            num_in_pol (int): number of dimensions for policy input
             num_out_pol (int): number of dimensions for policy output
             num_in_critic (int): number of dimensions for critic input
-            hidden_dim (int): number of hidden dimensions
-            lr (float): learning rate
-            discrete_action (bool): whether action space is discrete
-            delay_step (float): delay in timesteps (can be fractional)
-            use_sigmoid (bool): use sigmoid for continuous actions (outputs [0,1])
+            use_sigmoid (bool): Use sigmoid activation for continuous actions
         """
-        self.discrete_action = discrete_action
-        self.delay_step = delay_step
-        self.use_sigmoid = use_sigmoid
-        
-        print(f"[DelayAwareDDPG] Initializing agent:")
-        print(f"  Policy input dim: {num_in_pol}")
-        print(f"  Policy output dim: {num_out_pol}")
-        print(f"  Critic input dim: {num_in_critic}")
-        print(f"  Delay step: {delay_step}")
-        print(f"  Use sigmoid: {use_sigmoid}")
-        
-        # Policy network - uses sigmoid for continuous actions
         self.policy = MLPNetwork(num_in_pol, num_out_pol,
                                  hidden_dim=hidden_dim,
                                  constrain_out=True,
                                  discrete_action=discrete_action,
-                                 use_sigmoid=use_sigmoid)
-        
-        # Critic network
-        self.critic = MLPNetwork(num_in_critic, 1,
-                                 hidden_dim=hidden_dim,
-                                 constrain_out=False)
-        
-        # Target networks
+                                 use_sigmoid=use_sigmoid)  # Pass it here
         self.target_policy = MLPNetwork(num_in_pol, num_out_pol,
                                         hidden_dim=hidden_dim,
                                         constrain_out=True,
                                         discrete_action=discrete_action,
-                                        use_sigmoid=use_sigmoid)
+                                        use_sigmoid=use_sigmoid)  # And here
         
-        self.target_critic = MLPNetwork(num_in_critic, 1,
-                                        hidden_dim=hidden_dim,
+        self.critic = MLPNetwork(num_in_critic, 1, hidden_dim=hidden_dim,
+                                 constrain_out=False)
+        self.target_critic = MLPNetwork(num_in_critic, 1, hidden_dim=hidden_dim,
                                         constrain_out=False)
 
-        hard_update(self.target_policy, self.policy)
-        hard_update(self.target_critic, self.critic)
+        # Copy parameters from policy to target_policy
+        for target_param, param in zip(self.target_policy.parameters(),
+                                        self.policy.parameters()):
+            target_param.data.copy_(param.data)
         
-        self.policy_optimizer = Adam(self.policy.parameters(), lr=lr)
-        self.critic_optimizer = Adam(self.critic.parameters(), lr=lr)
-        
-        if not discrete_action:
-            self.exploration = OUNoise(num_out_pol)
-        else:
-            self.exploration = 0.3  # epsilon for eps-greedy
+        for target_param, param in zip(self.target_critic.parameters(),
+                                        self.critic.parameters()):
+            target_param.data.copy_(param.data)
 
-    def reset_noise(self):
-        if not self.discrete_action:
-            self.exploration.reset()
+        self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr)
 
-    def scale_noise(self, scale):
-        if self.discrete_action:
-            self.exploration = scale
-        else:
-            self.exploration.scale = scale
+        self.exploration_noise = OUNoise(num_out_pol)
+        self.discrete_action = discrete_action
 
     def step(self, obs, explore=False):
         """
@@ -93,19 +62,23 @@ class DelayAwareDDPG(object):
                 action = gumbel_softmax(action, hard=True)
             else:
                 action = onehot_from_logits(action)
-        else:  # continuous action
+        else:
             if explore:
-                action += torch.from_numpy(
-                    self.exploration.noise()).type_as(action)
-            
-            # Clamp to [0, 1] if using sigmoid, or [-1, 1] if using tanh
-            if self.use_sigmoid:
-                action = action.clamp(0, 1)
+                # Add noise - but now action is in [0, 1] not [-1, 1]
+                # So we need to scale noise appropriately
+                noise = Variable(torch.Tensor(self.exploration_noise.noise()),
+                                requires_grad=False)
+                # Scale noise to [0, 1] range
+                noise = (noise + 1.0) / 2.0  # Map from [-1, 1] to [0, 1]
+                action = action + noise
+                # Clip to valid range
+                action = torch.clamp(action, 0.0, 1.0)
             else:
-                action = action.clamp(-1, 1)
+                # Clip to ensure in valid range
+                action = torch.clamp(action, 0.0, 1.0)
         
         return action
-
+    
     def get_params(self):
         return {'policy': self.policy.state_dict(),
                 'critic': self.critic.state_dict(),
