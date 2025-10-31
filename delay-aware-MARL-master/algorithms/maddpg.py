@@ -47,6 +47,7 @@ class MADDPG(object):
         self.trgt_pol_dev = 'gpu'
         self.trgt_critic_dev = 'gpu'
         self.niter = 0
+        self.use_sigmoid = use_sigmoid
 
     @property
     def policies(self):
