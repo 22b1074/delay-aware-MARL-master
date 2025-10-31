@@ -11,7 +11,6 @@ from utils.make_env import make_env
 from utils.buffer import ReplayBuffer
 from utils.env_wrappers import SubprocVecEnv, DummyVecEnv
 from algorithms.maddpg import MADDPG
-from action_clip_logger import MultiAgentActionClipLogger  # Add this import
 
 USE_CUDA = True  # torch.cuda.is_available()
 
@@ -120,9 +119,6 @@ def run(config):
         torch.set_num_threads(config.n_training_threads)
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
-    
-    # Add action clipping logger
-    clip_logger = MultiAgentActionClipLogger(env, log_frequency=50, verbose=True)
     
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     print(f"[DEBUG] Delay step: {config.delay_step} (I={int(np.floor(config.delay_step))}, f={config.delay_step - int(np.floor(config.delay_step))})")
@@ -260,8 +256,21 @@ def run(config):
                 
                 actions.append(env_actions)
             
-            # Check and log clipping using the wrapper
-            actions = clip_logger.check_and_log_clipping(actions, step_num=ep_i * config.episode_length + et_i)
+            # Check for out-of-bounds actions and log clipping
+            if et_i < 5 or (et_i % 100 == 0):  # Log first 5 steps and every 100 steps
+                for env_idx in range(config.n_rollout_threads):
+                    for agent_idx in range(maddpg.nagents):
+                        action = actions[env_idx][agent_idx]
+                        action_space = env.action_space[agent_idx]
+                        
+                        # Check if any value is out of bounds
+                        if np.any(action < action_space.low) or np.any(action > action_space.high):
+                            clipped_action = np.clip(action, action_space.low, action_space.high)
+                            print(f"[CLIP WARNING] Env {env_idx}, Agent {agent_idx}, Step {et_i}")
+                            print(f"  Original action:  {action}")
+                            print(f"  Clipped to:       {clipped_action}")
+                            print(f"  Action space:     [{action_space.low[0]:.6f}, {action_space.high[0]:.6f}]")
+                            print(f"  Difference:       {action - clipped_action}")
             
             # Step environment with virtual effective actions (already in [0, 1])
             next_obs, rewards, dones, infos = env.step(actions)
@@ -307,10 +316,6 @@ def run(config):
         for a_i, a_ep_rew in enumerate(ep_rews):
             print(f"Episode {ep_i+1}, Agent {a_i} total reward: {a_ep_rew:.4f}")
             logger.add_scalars('agent%i/mean_episode_rewards' % a_i, {'reward': a_ep_rew}, ep_i)
-        
-        # Print clipping statistics every 1000 episodes
-        if (ep_i + 1) % 1000 == 0:
-            clip_logger.print_statistics()
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             os.makedirs(run_dir / 'incremental', exist_ok=True)
@@ -319,13 +324,6 @@ def run(config):
 
     maddpg.save(run_dir / 'model.pt')
     env.close()
-    
-    # Print final clipping statistics
-    print("\n" + "="*70)
-    print("FINAL TRAINING STATISTICS")
-    print("="*70)
-    clip_logger.print_statistics()
-    
     logger.export_scalars_to_json(str(log_dir / 'summary.json'))
     logger.close()
 
