@@ -86,6 +86,12 @@ class DDPGAgent(object):
         Outputs:
             action (PyTorch Variable): Actions for this agent
         """
+        if next(self.policy.parameters()).is_cuda:
+            device = torch.device("cuda")
+            obs = obs.to(device)
+        else:
+            device = torch.device("cpu")
+            obs = obs.to(device)
         action = self.policy(obs)
         
         if self.discrete_action:
@@ -95,8 +101,8 @@ class DDPGAgent(object):
                 action = onehot_from_logits(action)
         else:  # continuous action
             if explore:
-                action += torch.from_numpy(
-                    self.exploration.noise()).type_as(action)
+                action += Variable(Tensor(self.exploration.noise()),
+                                   requires_grad=False).to(device)
             
             # Clamp to [0, 1] if using sigmoid, or [-1, 1] if using tanh
             if self.use_sigmoid:
