@@ -14,7 +14,7 @@ class MADDPG(object):
     """
     def __init__(self, agent_init_params, alg_types,
                  gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64,
-                 discrete_action=False, use_sigmoid=False, delay_step=0.0):
+                 discrete_action=False, use_sigmoid=False, delay_step=3.0):
         """
         Inputs:
             agent_init_params (list of dict): List of dicts with parameters to
@@ -34,7 +34,7 @@ class MADDPG(object):
         self.nagents = len(alg_types)
         self.alg_types = alg_types
         self.agents = [DDPGAgent(lr=lr, discrete_action=discrete_action,
-                                 hidden_dim=hidden_dim, use_sigmoid=use_sigmoid,
+                                 hidden_dim=hidden_dim, use_sigmoid=use_sigmoid, delay_step=delay_step,
                                  **params)
                        for params in agent_init_params]
         self.agent_init_params = agent_init_params
