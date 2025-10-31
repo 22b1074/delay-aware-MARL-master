@@ -14,7 +14,7 @@ class MADDPG(object):
     """
     def __init__(self, agent_init_params, alg_types,
                  gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64,
-                 discrete_action=False):
+                 discrete_action=False, use_sigmoid=False):
         """
         Inputs:
             agent_init_params (list of dict): List of dicts with parameters to
