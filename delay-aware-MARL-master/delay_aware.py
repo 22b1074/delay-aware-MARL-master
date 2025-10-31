@@ -47,6 +47,9 @@ def compute_virtual_action(action_buffer, delay_float):
     Returns:
         Virtual effective action: (1-f)*a[I+1] + f*a[I]
     """
+    if delay_float == 0:
+        return action_buffer[0]
+        
     I = int(np.floor(delay_float))  # Integer part
     f = delay_float - I  # Fractional part
     
@@ -82,10 +85,19 @@ def run(config):
         torch.set_num_threads(config.n_training_threads)
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
-    
-    print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
-    print(f"[DEBUG] Delay step: {config.delay_step} (I={int(np.floor(config.delay_step))}, f={config.delay_step - int(np.floor(config.delay_step))})")
-    
+    print("\n" + "="*60)
+    print("TRAINING CONFIGURATION")
+    print("="*60)
+    print(f"Environment: {config.env_id}")
+    print(f"Delay step: {config.delay_step}")
+    print(f"Episodes: {config.n_episodes}")
+    print(f"Episode length: {config.episode_length}")
+    print(f"Learning rate: {config.lr}")
+    print(f"Hidden dim: {config.hidden_dim}")
+    print(f"Batch size: {config.batch_size}")
+    if config.delay_step == 0:
+        print("⚠️  DELAY-UNAWARE MODE (delay_step=0)")
+    print("="*60 + "\n")
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
     
     # Calculate buffer size needed (ceiling of delay)
@@ -105,8 +117,8 @@ def run(config):
     print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
     print(f"[DEBUG] Delay buffer size: {delay_buffer_size}")
     for i, agent in enumerate(maddpg.agents):
-        print(f"[DEBUG] Agent {i} policy input dim: {agent.policy.in_fn.num_features}")
-    
+        print(f"[INFO] Agent {i} policy input dim: {agent.policy.in_fn.num_features}")
+        print(f"[INFO] Agent {i} delay_step: {agent.delay_step}")
     # Calculate observation dimension for replay buffer
     # Each agent sees: original_obs + delay_buffer_size * action_dim
     replay_buffer = ReplayBuffer(
@@ -186,6 +198,10 @@ def run(config):
                     # It's a memoryview or similar - convert to numpy
                     agent_actions.append(np.array(ac, dtype=np.float32))
             # Prepare actions for each environment
+            for a_i, action in enumerate(agent_actions):
+                assert action.dtype == np.float32, f"Agent {a_i} action wrong dtype: {action.dtype}"
+                assert np.all(action > 0) and np.all(action < 1), f"Agent {a_i} action out of range!"
+            
             actions = []
             for env_idx in range(config.n_rollout_threads):
                 # Get current actions for this environment
