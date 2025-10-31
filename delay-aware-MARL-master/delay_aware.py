@@ -98,8 +98,7 @@ def run(config):
         tau=config.tau,
         lr=config.lr,
         hidden_dim=config.hidden_dim,
-        delay_step=config.delay_step,
-        use_sigmoid=True
+        delay_step=config.delay_step
     )
     
     print(f"[DEBUG] MADDPG initialized with {maddpg.nagents} agents")
