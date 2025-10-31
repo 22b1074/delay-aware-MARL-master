@@ -174,8 +174,17 @@ def run(config):
             
             # Get actions from policies
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
-            agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
+            #agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
             #agent_actions = [ac.data.cpu().numpy() for ac in torch_agent_actions]
+            agent_actions = []
+            for ac in torch_agent_actions:
+                if isinstance(ac, torch.Tensor):
+                    agent_actions.append(ac.detach().cpu().numpy())
+                elif isinstance(ac, np.ndarray):
+                    agent_actions.append(ac)
+                else:
+                    # It's a memoryview or similar - convert to numpy
+                    agent_actions.append(np.array(ac, dtype=np.float32))
             # Prepare actions for each environment
             actions = []
             for env_idx in range(config.n_rollout_threads):
