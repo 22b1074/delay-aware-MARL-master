@@ -132,10 +132,11 @@ class MultiAgentActionClipLogger:
         
         Args:
             actions: List of actions for each environment (for vectorized envs)
+                    Each element should be a list of actions per agent
             step_num: Current step number (optional)
         
         Returns:
-            clipped_actions: Actions clipped to valid range
+            clipped_actions: Actions clipped to valid range, preserving structure
         """
         if step_num is not None:
             self.step_count = step_num
@@ -152,18 +153,19 @@ class MultiAgentActionClipLogger:
             env_clipped = []
             
             for agent_idx, action in enumerate(env_actions):
-                original_action = np.array(action).copy()
+                # Ensure action is a numpy array
+                original_action = np.asarray(action, dtype=self.env.action_space[agent_idx].dtype)
                 action_space = self.env.action_space[agent_idx]
                 
                 if isinstance(action_space, Box):
                     # Check if clipping needed
-                    out_of_bounds = (action < action_space.low) | (action > action_space.high)
+                    out_of_bounds = (original_action < action_space.low) | (original_action > action_space.high)
                     
                     if np.any(out_of_bounds):
                         self.clip_counts[agent_idx] = self.clip_counts.get(agent_idx, 0) + 1
                         
                         # Clip the action
-                        clipped_action = np.clip(action, action_space.low, action_space.high)
+                        clipped_action = np.clip(original_action, action_space.low, action_space.high)
                         clip_magnitude = np.abs(original_action - clipped_action).sum()
                         self.total_clip_magnitudes[agent_idx] = self.total_clip_magnitudes.get(agent_idx, 0) + clip_magnitude
                         
@@ -187,14 +189,19 @@ class MultiAgentActionClipLogger:
                                     else:
                                         print(f"    Dim {i}: {original_action[i]:.6f} > HIGH {action_space.high[i]:.6f}")
                         
+                        # Ensure clipped action is correct dtype and shape
+                        clipped_action = np.asarray(clipped_action, dtype=action_space.dtype)
                         env_clipped.append(clipped_action)
                     else:
-                        env_clipped.append(action)
+                        # No clipping needed, but ensure correct dtype and shape
+                        env_clipped.append(np.asarray(original_action, dtype=action_space.dtype))
                 else:
-                    env_clipped.append(action)
+                    # Not a Box space, pass through
+                    env_clipped.append(np.asarray(action, dtype=action_space.dtype))
             
             clipped_actions.append(env_clipped)
         
+        # Return single list if input was single environment
         return clipped_actions if len(clipped_actions) > 1 else clipped_actions[0]
     
     def print_statistics(self):
