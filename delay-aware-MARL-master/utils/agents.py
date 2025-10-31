@@ -6,6 +6,7 @@ from torch.optim import Adam
 from .networks import MLPNetwork
 from .misc import hard_update, gumbel_softmax, onehot_from_logits
 from .noise import OUNoise
+import numpy as np
 device = 'cuda'
 class DDPGAgent(object):
     """
