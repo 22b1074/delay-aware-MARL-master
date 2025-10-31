@@ -14,7 +14,7 @@ class MADDPG(object):
     """
     def __init__(self, agent_init_params, alg_types,
                  gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64,
-                 discrete_action=False, use_sigmoid=False):
+                 discrete_action=False, use_sigmoid=False, delay_step=0.0):
         """
         Inputs:
             agent_init_params (list of dict): List of dicts with parameters to
@@ -48,6 +48,7 @@ class MADDPG(object):
         self.trgt_critic_dev = 'gpu'
         self.niter = 0
         self.use_sigmoid = use_sigmoid
+        self.delay_step = delay_step
 
     @property
     def policies(self):
@@ -262,7 +263,8 @@ class MADDPG(object):
             'alg_types': alg_types,
             'agent_init_params': agent_init_params,
             'discrete_action': discrete_action,
-            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+            'use_sigmoid': use_sigmoid, 
+            'delay_step': delay_step
         }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
@@ -333,7 +335,8 @@ class MADDPG(object):
             'alg_types': alg_types,
             'agent_init_params': agent_init_params,
             'discrete_action': discrete_action,
-            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+            'use_sigmoid': use_sigmoid,
+            'delay_step': delay_step
         }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
@@ -394,7 +397,8 @@ class MADDPG(object):
             'alg_types': alg_types,
             'agent_init_params': agent_init_params,
             'discrete_action': discrete_action,
-            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+            'use_sigmoid': use_sigmoid,
+            'delay_step': delay_step
         }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
@@ -440,7 +444,8 @@ class MADDPG(object):
             'alg_types': alg_types,
             'agent_init_params': agent_init_params,
             'discrete_action': discrete_action,
-            'use_sigmoid': use_sigmoid  # THIS LINE WAS MISSING!
+            'use_sigmoid': use_sigmoid,
+            'delay_step': delay_step
         }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
