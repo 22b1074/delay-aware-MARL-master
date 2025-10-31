@@ -76,8 +76,11 @@ def denormalize_action_for_buffer(action, action_space):
     Returns:
         Action in [-1, 1] range for training
     """
+    # Ensure we're working with the right dtype
+    action = np.array(action, dtype=action_space.dtype)
+    
     # Clip to ensure within bounds
-    epsilon = 1e-6
+    epsilon = 1e-5
     action = np.clip(action, action_space.low + epsilon, action_space.high - epsilon)
     # Map from [0, 1] to [-1, 1]
     action = action * 2.0 - 1.0
@@ -99,10 +102,15 @@ def compute_virtual_action(action_buffer, delay_float):
     
     if f == 0 or I >= len(action_buffer) - 1:
         # Pure integral delay or at boundary
-        return action_buffer[min(I, len(action_buffer) - 1)]
+        idx = min(I, len(action_buffer) - 1)
+        action = action_buffer[idx]
+        # Ensure it's a numpy array (not scalar)
+        return np.asarray(action, dtype=np.float32)
     else:
         # Non-integral delay: interpolate between two actions
-        return (1 - f) * action_buffer[I] + f * action_buffer[I + 1]
+        action = (1 - f) * action_buffer[I] + f * action_buffer[I + 1]
+        # Ensure it's a numpy array (not scalar)
+        return np.asarray(action, dtype=np.float32)
 
 def run(config):
     model_dir = Path('./models') / config.env_id / config.model_name
@@ -192,20 +200,32 @@ def run(config):
 
         # Initialize action buffers for each environment
         # Store actions in NORMALIZED [0, 1] range (as sent to environment)
-        # Use 0.49 to avoid boundary issues (Box is half-open [0, 1))
+        # Use 0.5 as middle value, but ensure float32 dtype
         last_agent_actions = []
         for env_idx in range(config.n_rollout_threads):
             env_agent_buffers = []
             for agent_idx in range(maddpg.nagents):
-                # Initialize with 0.49 (safe value in [0, 1) range)
-                zero_actions = [np.ones(env.action_space[agent_idx].shape[0]) * 0.49 
-                               for _ in range(delay_buffer_size)]
+                # Initialize with 0.5 in correct dtype with safety margin
+                epsilon = 1e-5
+                safe_init_value = 0.5
+                # Ensure it's within safe bounds
+                safe_init_value = np.clip(safe_init_value,
+                                         env.action_space[agent_idx].low[0] + epsilon,
+                                         env.action_space[agent_idx].high[0] - epsilon)
+                
+                zero_actions = [
+                    np.full(env.action_space[agent_idx].shape[0], 
+                           safe_init_value, 
+                           dtype=env.action_space[agent_idx].dtype)
+                    for _ in range(delay_buffer_size)
+                ]
                 env_agent_buffers.append(zero_actions)
             last_agent_actions.append(env_agent_buffers)
         
         if ep_i == 0:
             print(f"[DEBUG] Action buffer initialized with {delay_buffer_size} actions per agent")
-            print(f"[DEBUG] Initial action value: 0.49 (safe within [0, 1) bounds)")
+            print(f"[DEBUG] Initial action value: {safe_init_value} (dtype: {env.action_space[0].dtype})")
+            print(f"[DEBUG] Sample init action: {last_agent_actions[0][0][0]}")
         
         # Append action history to observations for ALL environments
         # Actions stored in buffer are in [0, 1], need to convert to [-1, 1] for model
