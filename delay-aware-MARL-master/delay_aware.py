@@ -174,8 +174,8 @@ def run(config):
             
             # Get actions from policies
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
-            #agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
-            agent_actions = [ac.data.cpu().numpy() for ac in torch_agent_actions]
+            agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
+            #agent_actions = [ac.data.cpu().numpy() for ac in torch_agent_actions]
             # Prepare actions for each environment
             actions = []
             for env_idx in range(config.n_rollout_threads):
