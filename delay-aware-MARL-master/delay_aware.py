@@ -11,6 +11,7 @@ from utils.make_env import make_env
 from utils.buffer import ReplayBuffer
 from utils.env_wrappers import SubprocVecEnv, DummyVecEnv
 from algorithms.maddpg import MADDPG
+from action_clip_logger import MultiAgentActionClipLogger  # Add this import
 
 USE_CUDA = True  # torch.cuda.is_available()
 
@@ -51,9 +52,16 @@ def normalize_action_to_env(action, action_space):
     action = np.clip(action, -1.0, 1.0)
     # Map from [-1, 1] to [0, 1]
     action = (action + 1.0) / 2.0
-    # Add small epsilon to avoid boundary issues
-    epsilon = 1e-6
-    action = np.clip(action, action_space.low + epsilon, action_space.high - epsilon)
+    
+    # Ensure correct dtype (PettingZoo expects float32)
+    action = action.astype(action_space.dtype)
+    
+    # Add epsilon to avoid boundaries (especially upper bound)
+    epsilon = 1e-5  # Larger epsilon for float32
+    action = np.clip(action, 
+                     action_space.low + epsilon, 
+                     action_space.high - epsilon)
+    
     return action
 
 def denormalize_action_for_buffer(action, action_space):
@@ -119,6 +127,9 @@ def run(config):
         torch.set_num_threads(config.n_training_threads)
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
+    
+    # Add action clipping logger
+    clip_logger = MultiAgentActionClipLogger(env, log_frequency=50, verbose=True)
     
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     print(f"[DEBUG] Delay step: {config.delay_step} (I={int(np.floor(config.delay_step))}, f={config.delay_step - int(np.floor(config.delay_step))})")
@@ -222,6 +233,12 @@ def run(config):
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
             agent_actions_raw = [ac.data.numpy() for ac in torch_agent_actions]
             
+            # DEBUG: Print raw actions from policy
+            if et_i < 3 and ep_i == 0:
+                print(f"\n[DEBUG STEP {et_i}] Raw actions from policy ([-1,1] range):")
+                for a_i in range(maddpg.nagents):
+                    print(f"  Agent {a_i}: {agent_actions_raw[a_i][0]}")
+            
             # Normalize actions to environment range [0, 1]
             # This also clips to handle noise that pushed outside [-1, 1]
             agent_actions_normalized = []
@@ -233,12 +250,27 @@ def run(config):
                 ])
                 agent_actions_normalized.append(normalized)
             
+            # DEBUG: Print normalized actions
+            if et_i < 3 and ep_i == 0:
+                print(f"[DEBUG STEP {et_i}] Normalized actions ([0,1] range):")
+                for a_i in range(maddpg.nagents):
+                    print(f"  Agent {a_i}: {agent_actions_normalized[a_i][0]}")
+            
             # Prepare actions for each environment
             actions = []
             for env_idx in range(config.n_rollout_threads):
                 # Get current normalized actions for this environment
                 current_actions = [agent_actions_normalized[a_i][env_idx] 
                                   for a_i in range(maddpg.nagents)]
+                
+                # DEBUG: Print action buffer state
+                if et_i < 3 and ep_i == 0 and env_idx == 0:
+                    print(f"\n[DEBUG STEP {et_i}] Action buffer (newest to oldest) for env {env_idx}:")
+                    for a_i in range(maddpg.nagents):
+                        print(f"  Agent {a_i} buffer:")
+                        for buf_idx, buf_action in enumerate(last_agent_actions[env_idx][a_i]):
+                            print(f"    [{buf_idx}]: {buf_action}")
+                    print(f"[DEBUG STEP {et_i}] Current new actions: {current_actions}")
                 
                 # Compute virtual effective actions using the delay
                 env_actions = []
@@ -249,6 +281,12 @@ def run(config):
                     )
                     env_actions.append(virtual_action)
                 
+                # DEBUG: Print virtual actions
+                if et_i < 3 and ep_i == 0 and env_idx == 0:
+                    print(f"[DEBUG STEP {et_i}] Virtual actions (delay={config.delay_step}):")
+                    for a_i in range(maddpg.nagents):
+                        print(f"  Agent {a_i}: {env_actions[a_i]}")
+                
                 # Update action buffers: shift and add new action (in [0, 1] range)
                 for agent_idx in range(maddpg.nagents):
                     last_agent_actions[env_idx][agent_idx].pop()
@@ -256,21 +294,24 @@ def run(config):
                 
                 actions.append(env_actions)
             
-            # Check for out-of-bounds actions and log clipping
-            if et_i < 5 or (et_i % 100 == 0):  # Log first 5 steps and every 100 steps
+            # Check and log clipping using the wrapper
+            if et_i < 3 and ep_i == 0:
+                print(f"\n[DEBUG STEP {et_i}] Actions being sent to env.step():")
                 for env_idx in range(config.n_rollout_threads):
-                    for agent_idx in range(maddpg.nagents):
-                        action = actions[env_idx][agent_idx]
-                        action_space = env.action_space[agent_idx]
+                    for a_i in range(maddpg.nagents):
+                        action = actions[env_idx][a_i]
+                        action_space = env.action_space[a_i]
+                        print(f"  Env {env_idx}, Agent {a_i}: {action}")
+                        print(f"    Space bounds: [{action_space.low}, {action_space.high}]")
+                        print(f"    In bounds? {np.all(action >= action_space.low) and np.all(action < action_space.high)}")
                         
-                        # Check if any value is out of bounds
-                        if np.any(action < action_space.low) or np.any(action > action_space.high):
-                            clipped_action = np.clip(action, action_space.low, action_space.high)
-                            print(f"[CLIP WARNING] Env {env_idx}, Agent {agent_idx}, Step {et_i}")
-                            print(f"  Original action:  {action}")
-                            print(f"  Clipped to:       {clipped_action}")
-                            print(f"  Action space:     [{action_space.low[0]:.6f}, {action_space.high[0]:.6f}]")
-                            print(f"  Difference:       {action - clipped_action}")
+                        # Check what it would clip to
+                        clipped = np.clip(action, action_space.low, action_space.high - 1e-6)
+                        if not np.allclose(action, clipped):
+                            print(f"    Would clip to: {clipped}")
+                            print(f"    Difference: {action - clipped}")
+            
+            actions = clip_logger.check_and_log_clipping(actions, step_num=ep_i * config.episode_length + et_i)
             
             # Step environment with virtual effective actions (already in [0, 1])
             next_obs, rewards, dones, infos = env.step(actions)
@@ -316,6 +357,10 @@ def run(config):
         for a_i, a_ep_rew in enumerate(ep_rews):
             print(f"Episode {ep_i+1}, Agent {a_i} total reward: {a_ep_rew:.4f}")
             logger.add_scalars('agent%i/mean_episode_rewards' % a_i, {'reward': a_ep_rew}, ep_i)
+        
+        # Print clipping statistics every 1000 episodes
+        if (ep_i + 1) % 1000 == 0:
+            clip_logger.print_statistics()
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             os.makedirs(run_dir / 'incremental', exist_ok=True)
@@ -324,6 +369,13 @@ def run(config):
 
     maddpg.save(run_dir / 'model.pt')
     env.close()
+    
+    # Print final clipping statistics
+    print("\n" + "="*70)
+    print("FINAL TRAINING STATISTICS")
+    print("="*70)
+    clip_logger.print_statistics()
+    
     logger.export_scalars_to_json(str(log_dir / 'summary.json'))
     logger.close()
 
