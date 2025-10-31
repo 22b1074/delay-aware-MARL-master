@@ -11,6 +11,7 @@ from utils.make_env import make_env
 from utils.buffer import ReplayBuffer
 from utils.env_wrappers import SubprocVecEnv, DummyVecEnv
 from algorithms.maddpg import MADDPG
+from action_clip_logger import MultiAgentActionClipLogger  # Add this import
 
 USE_CUDA = True  # torch.cuda.is_available()
 
@@ -47,12 +48,13 @@ def normalize_action_to_env(action, action_space):
     Returns:
         Normalized action in [action_space.low, action_space.high]
     """
-    # Clip to [-1, 1] first
+    # Clip to [-1, 1] first to handle exploration noise
     action = np.clip(action, -1.0, 1.0)
     # Map from [-1, 1] to [0, 1]
     action = (action + 1.0) / 2.0
-    # Clip to action space bounds
-    action = np.clip(action, action_space.low, action_space.high)
+    # Add small epsilon to avoid boundary issues
+    epsilon = 1e-6
+    action = np.clip(action, action_space.low + epsilon, action_space.high - epsilon)
     return action
 
 def denormalize_action_for_buffer(action, action_space):
@@ -67,6 +69,9 @@ def denormalize_action_for_buffer(action, action_space):
     Returns:
         Action in [-1, 1] range for training
     """
+    # Clip to ensure within bounds
+    epsilon = 1e-6
+    action = np.clip(action, action_space.low + epsilon, action_space.high - epsilon)
     # Map from [0, 1] to [-1, 1]
     action = action * 2.0 - 1.0
     return action
@@ -85,9 +90,9 @@ def compute_virtual_action(action_buffer, delay_float):
     I = int(np.floor(delay_float))  # Integer part
     f = delay_float - I  # Fractional part
     
-    if f == 0:
-        # Pure integral delay
-        return action_buffer[I]
+    if f == 0 or I >= len(action_buffer) - 1:
+        # Pure integral delay or at boundary
+        return action_buffer[min(I, len(action_buffer) - 1)]
     else:
         # Non-integral delay: interpolate between two actions
         return (1 - f) * action_buffer[I] + f * action_buffer[I + 1]
@@ -116,9 +121,14 @@ def run(config):
     env = make_parallel_env(config.env_id, config.n_rollout_threads, config.seed,
                             config.discrete_action)
     
+    # Add action clipping logger
+    clip_logger = MultiAgentActionClipLogger(env, log_frequency=50, verbose=True)
+    
     print("\n[DEBUG] ========== ENVIRONMENT INFO ==========")
     print(f"[DEBUG] Delay step: {config.delay_step} (I={int(np.floor(config.delay_step))}, f={config.delay_step - int(np.floor(config.delay_step))})")
     print(f"[DEBUG] Action normalization: ENABLED (model [-1,1] -> env [0,1])")
+    print(f"[DEBUG] Exploration noise: init={config.init_noise_scale}, final={config.final_noise_scale}")
+    print(f"[DEBUG] Exploration episodes: {config.n_exploration_eps}")
     
     print("\n[DEBUG] ========== INITIALIZING MADDPG ==========")
     
@@ -164,23 +174,31 @@ def run(config):
         else:
             maddpg.prep_rollouts(device='cpu')
 
+        # Set exploration noise - this scales down over time
         explr_pct_remaining = max(0, config.n_exploration_eps - ep_i) / config.n_exploration_eps
-        maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
+        current_noise_scale = config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining
+        maddpg.scale_noise(current_noise_scale)
         maddpg.reset_noise()
+        
+        if ep_i % 1000 == 0:
+            print(f"[DEBUG] Episode {ep_i}: Exploration noise scale = {current_noise_scale:.4f}")
 
         # Initialize action buffers for each environment
         # Store actions in NORMALIZED [0, 1] range (as sent to environment)
+        # Use 0.49 to avoid boundary issues (Box is half-open [0, 1))
         last_agent_actions = []
         for env_idx in range(config.n_rollout_threads):
             env_agent_buffers = []
             for agent_idx in range(maddpg.nagents):
-                # Initialize with 0.5 (middle of [0, 1] range, equivalent to 0 in [-1, 1])
-                zero_actions = [np.ones(env.action_space[agent_idx].shape[0]) * 0.5 
+                # Initialize with 0.49 (safe value in [0, 1) range)
+                zero_actions = [np.ones(env.action_space[agent_idx].shape[0]) * 0.49 
                                for _ in range(delay_buffer_size)]
                 env_agent_buffers.append(zero_actions)
             last_agent_actions.append(env_agent_buffers)
         
-        print(f"[DEBUG] Action buffer initialized with size {delay_buffer_size} for each agent")
+        if ep_i == 0:
+            print(f"[DEBUG] Action buffer initialized with {delay_buffer_size} actions per agent")
+            print(f"[DEBUG] Initial action value: 0.49 (safe within [0, 1) bounds)")
         
         # Append action history to observations for ALL environments
         # Actions stored in buffer are in [0, 1], need to convert to [-1, 1] for model
@@ -203,11 +221,13 @@ def run(config):
                                   requires_grad=False)
                          for i in range(maddpg.nagents)]
             
-            # Get actions from policies (output in [-1, 1] range)
+            # Get actions from policies with EXPLORATION NOISE
+            # Output is in [-1, 1] range WITH noise already added
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
             agent_actions_raw = [ac.data.numpy() for ac in torch_agent_actions]
             
             # Normalize actions to environment range [0, 1]
+            # This also clips to handle noise that pushed outside [-1, 1]
             agent_actions_normalized = []
             for agent_idx in range(maddpg.nagents):
                 normalized = np.array([
@@ -239,6 +259,9 @@ def run(config):
                     last_agent_actions[env_idx][agent_idx].insert(0, current_actions[agent_idx])
                 
                 actions.append(env_actions)
+            
+            # Check and log clipping using the wrapper
+            actions = clip_logger.check_and_log_clipping(actions, step_num=ep_i * config.episode_length + et_i)
             
             # Step environment with virtual effective actions (already in [0, 1])
             next_obs, rewards, dones, infos = env.step(actions)
@@ -282,8 +305,12 @@ def run(config):
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
         for a_i, a_ep_rew in enumerate(ep_rews):
-            print(f"Episode {ep_i+1}, Agent {a_i} total reward: {a_ep_rew}")
+            print(f"Episode {ep_i+1}, Agent {a_i} total reward: {a_ep_rew:.4f}")
             logger.add_scalars('agent%i/mean_episode_rewards' % a_i, {'reward': a_ep_rew}, ep_i)
+        
+        # Print clipping statistics every 1000 episodes
+        if (ep_i + 1) % 1000 == 0:
+            clip_logger.print_statistics()
 
         if ep_i % config.save_interval < config.n_rollout_threads:
             os.makedirs(run_dir / 'incremental', exist_ok=True)
@@ -292,6 +319,13 @@ def run(config):
 
     maddpg.save(run_dir / 'model.pt')
     env.close()
+    
+    # Print final clipping statistics
+    print("\n" + "="*70)
+    print("FINAL TRAINING STATISTICS")
+    print("="*70)
+    clip_logger.print_statistics()
+    
     logger.export_scalars_to_json(str(log_dir / 'summary.json'))
     logger.close()
 
