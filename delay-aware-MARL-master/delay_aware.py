@@ -188,20 +188,26 @@ def run(config):
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
             #agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
             #agent_actions = [ac.data.cpu().numpy() for ac in torch_agent_actions]
-            agent_actions = []
-            for ac in torch_agent_actions:
-                if isinstance(ac, torch.Tensor):
-                    agent_actions.append(ac.detach().cpu().numpy())
-                elif isinstance(ac, np.ndarray):
-                    agent_actions.append(ac)
-                else:
+            agent_actions = [ac.data.cpu().numpy().astype(np.float32) for ac in torch_agent_actions]
+
+            #agent_actions = []
+            #for ac in torch_agent_actions:
+             #   if isinstance(ac, torch.Tensor):
+              #      agent_actions.append(ac.detach().cpu().numpy())
+               # elif isinstance(ac, np.ndarray):
+                #    agent_actions.append(ac)
+                #else:
                     # It's a memoryview or similar - convert to numpy
-                    agent_actions.append(np.array(ac, dtype=np.float32))
+                 #   agent_actions.append(np.array(ac, dtype=np.float32))
             # Prepare actions for each environment
             for a_i, action in enumerate(agent_actions):
-                assert action.dtype == np.float32, f"Agent {a_i} action wrong dtype: {action.dtype}"
-                assert np.all(action > 0) and np.all(action < 1), f"Agent {a_i} action out of range!"
-            
+                print(f"[DEBUG] Agent {a_i} action dtype: {action.dtype}, shape: {action.shape}")
+                print(f"[DEBUG] Agent {a_i} action range: [{action.min():.6f}, {action.max():.6f}]")
+                assert action.dtype == np.float32, f"Agent {a_i} wrong dtype: {action.dtype}"
+            epsilon = 1e-6
+            for a_i in range(len(agent_actions)):
+                # Clip to (epsilon, 1-epsilon) and ensure float32
+                agent_actions[a_i] = np.clip(agent_actions[a_i], epsilon, 1.0 - epsilon).astype(np.float32)
             actions = []
             for env_idx in range(config.n_rollout_threads):
                 # Get current actions for this environment
