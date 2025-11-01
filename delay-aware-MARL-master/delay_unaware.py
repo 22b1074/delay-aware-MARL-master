@@ -76,7 +76,7 @@ def run(config):
                                       adversary_alg=config.adversary_alg,
                                       tau=config.tau,
                                       lr=config.lr,
-                                      hidden_dim=config.hidden_dim, delay_step = config.delay_step)
+                                      hidden_dim=config.hidden_dim)
     
     replay_buffer = ReplayBuffer(config.buffer_length, maddpg.nagents,
                                  [obsp.shape[0] for obsp in env.observation_space],
