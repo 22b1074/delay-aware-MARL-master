@@ -102,14 +102,14 @@ def run(config):
         maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
         maddpg.reset_noise()
 
-
+        delay_step = config.delay_step
         last_agent_actions = []
         for env_idx in range(config.n_rollout_threads):
             env_agent_buffers = []
             for agent_idx in range(maddpg.nagents):
                 # Initialize with zeros
                 zero_actions = [np.zeros(env.action_space[agent_idx].shape[0]) 
-                               for _ in range(delay_buffer_size)]
+                               for _ in range(delay_step)]
                 env_agent_buffers.append(zero_actions)
             last_agent_actions.append(env_agent_buffers)
         
