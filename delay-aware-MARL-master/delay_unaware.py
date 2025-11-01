@@ -16,13 +16,20 @@ USE_CUDA = True  # torch.cuda.is_available()
 
 # import os
 # os.environ["CUDA_VISIBLE_DEVICES"]="1"
+if torch.cuda.is_available():
+    torch.cuda.init()
+    print(f" CUDA initialized: {torch.cuda.get_device_name(0)}")
+else:
+    print(" No CUDA available, using CPU")
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 def make_parallel_env(env_id, n_rollout_threads, seed, discrete_action):
     def get_env_fn(rank):
         def init_env():
             env = make_env(env_id, discrete_action=discrete_action)
-            env.seed(seed + rank * 1000)
             np.random.seed(seed + rank * 1000)
+            env.reset(seed=seed + rank * 1000)
             return env
         return init_env
     if n_rollout_threads == 1:
@@ -82,21 +89,31 @@ def run(config):
                                         ep_i + 1 + config.n_rollout_threads,
                                         config.n_episodes))
         obs = env.reset()
-        maddpg.prep_rollouts(device='gpu')
+        print(f"[DEBUG] After reset, obs shape: {obs.shape}")
+        for i, o in enumerate(obs[0]):
+            print(f"[DEBUG] obs[0][{i}] shape: {o.shape}, dtype: {o.dtype}")
+        
+        if USE_CUDA:
+            maddpg.prep_rollouts(device='gpu')
+        else:
+            maddpg.prep_rollouts(device='cpu')
 
         explr_pct_remaining = max(0, config.n_exploration_eps - ep_i) / config.n_exploration_eps
         maddpg.scale_noise(config.final_noise_scale + (config.init_noise_scale - config.final_noise_scale) * explr_pct_remaining)
         maddpg.reset_noise()
 
 
-        if config.env_id == 'simple_speaker_listener':
-            zero_agent_actions = [np.array([[0, 0, 0]]), np.array([[0, 0, 0, 0, 0]])]
-        elif config.env_id == 'simple_spread':
-            zero_agent_actions = [np.array([[0.0, 0.0, 0.0, 0.0, 0.0]]) for _ in range(maddpg.nagents)]
-        elif config.env_id == 'simple_tag':
-            zero_agent_actions = [np.array([0.0, 0.0]) for _ in range(maddpg.nagents)]
-        last_agent_actions = [zero_agent_actions for _ in range(delay_step)]
-
+        last_agent_actions = []
+        for env_idx in range(config.n_rollout_threads):
+            env_agent_buffers = []
+            for agent_idx in range(maddpg.nagents):
+                # Initialize with zeros
+                zero_actions = [np.zeros(env.action_space[agent_idx].shape[0]) 
+                               for _ in range(delay_buffer_size)]
+                env_agent_buffers.append(zero_actions)
+            last_agent_actions.append(env_agent_buffers)
+        
+        print(f"[DEBUG] Action buffer initialized (for env execution only)")
         for et_i in range(config.episode_length):
             torch_obs = [Variable(torch.Tensor(np.vstack(obs[:, i])),
                                   requires_grad=False)
@@ -104,7 +121,16 @@ def run(config):
             # get actions as torch Variables
             torch_agent_actions = maddpg.step(torch_obs, explore=True)
             # convert actions to numpy arrays
-            agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
+            #agent_actions = [ac.data.numpy() for ac in torch_agent_actions]
+            agent_actions = [ac.data.cpu().numpy().astype(np.float32) for ac in torch_agent_actions]
+            for a_i, action in enumerate(agent_actions):
+                print(f"[DEBUG] Agent {a_i} action dtype: {action.dtype}, shape: {action.shape}")
+                print(f"[DEBUG] Agent {a_i} action range: [{action.min():.6f}, {action.max():.6f}]")
+                assert action.dtype == np.float32, f"Agent {a_i} wrong dtype: {action.dtype}"
+            epsilon = 1e-6
+            for a_i in range(len(agent_actions)):
+                agent_actions[a_i] = np.clip(agent_actions[a_i], epsilon, 1.0 - epsilon).astype(np.float32)
+            
             if config.load_adv:
                 if delay_step == 0:
                     actions = [[ac[i] for ac in agent_actions] for i in range(config.n_rollout_threads)]
