@@ -13,7 +13,7 @@ class MADDPG(object):
     Wrapper class for DDPG-esque (i.e. also MADDPG) agents in multi-agent task
     """
     def __init__(self, agent_init_params, alg_types,
-                 gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64,
+                 gamma=0.99, tau=0.01, lr=0.01, hidden_dim=64,
                  discrete_action=False, use_sigmoid=False, delay_step=3.0):
         """
         Inputs:
@@ -229,7 +229,7 @@ class MADDPG(object):
 
     @classmethod
     def init_from_env(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64):
+                      gamma=0.99, tau=0.01, lr=0.01, hidden_dim=64):
         """
         Instantiate instance of this class from multi-agent environment
         """
@@ -344,7 +344,7 @@ class MADDPG(object):
     
     @classmethod    
     def init_from_env_with_runner(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0.0, file_name=''):
+                      gamma=0.99, tau=0.01, lr=0.01, hidden_dim=64, delay_step=0.0, file_name=''):
         """
         Instantiate with a pre-trained runner agent (agent 2) for non-integral delays.
         """
@@ -408,7 +408,7 @@ class MADDPG(object):
     
     @classmethod    
     def init_from_env_with_runner_delay_unaware(cls, env, agent_alg="MADDPG", adversary_alg="MADDPG",
-                      gamma=0.95, tau=0.01, lr=0.01, hidden_dim=64, file_name=''):
+                      gamma=0.99, tau=0.01, lr=0.01, hidden_dim=64, file_name=''):
         """
         Instantiate with delay-unaware runner (no action history in observations).
         """
