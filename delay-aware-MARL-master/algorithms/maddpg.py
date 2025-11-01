@@ -262,9 +262,7 @@ class MADDPG(object):
             'hidden_dim': hidden_dim,
             'alg_types': alg_types,
             'agent_init_params': agent_init_params,
-            'discrete_action': discrete_action,
-            'use_sigmoid': use_sigmoid, 
-            'delay_step': delay_step
+            'discrete_action': discrete_action
         }
         instance = cls(**init_dict)
         instance.init_dict = init_dict
