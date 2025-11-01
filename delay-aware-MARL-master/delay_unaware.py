@@ -182,6 +182,7 @@ def run(config):
         ep_rews = replay_buffer.get_average_rewards(
             config.episode_length * config.n_rollout_threads)
         for a_i, a_ep_rew in enumerate(ep_rews):
+            print(f"Episode {ep_i+1}, Agent {a_i} average reward: {a_ep_rew:.6f}")
             logger.add_scalars('agent%i/mean_episode_rewards' % a_i, {'reward': a_ep_rew}, ep_i)
 
         if ep_i % config.save_interval < config.n_rollout_threads:
