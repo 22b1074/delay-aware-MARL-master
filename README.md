@@ -60,7 +60,6 @@ For a fractional delay `d = I + f` where `f ∈ [0,1)`:
 - Delay-unaware training shows **unstable learning** with high variance and slower convergence
 
 ---
----
 
 ## 🔑 Key Takeaways
 
